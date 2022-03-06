@@ -59,7 +59,7 @@ class AntTagEnv(env.Env):
             xy = jp.random_uniform(rng1, (2,), -self.cage_xy, self.cage_xy)
             return rng1, xy
 
-        _, xy = while_loop(lambda rngxy: jp.norm(minus_ant(xy[1])) <= self.min_spawn_distance,
+        _, xy = while_loop(lambda rngxy: jp.norm(minus_ant(rngxy[1])) <= self.min_spawn_distance,
                               resample,
                               (rng1, xy))
         # while jp.norm(xy - ant_xy) <= self.min_spawn_distance:
@@ -97,12 +97,13 @@ class AntTagEnv(env.Env):
         choice = jax.random.randint(rng1, (), 0, 4)
         target2ant_vec = ant_xy - tgt_xy
         target2ant_vec = target2ant_vec / jp.norm(target2ant_vec)
+        # jax.lax.switch(choice, (), )
 
         per_vec_1 = jp.array([target2ant_vec[1], -target2ant_vec[0]])
         per_vec_2 = jp.array([-target2ant_vec[1], target2ant_vec[0]])
         opposite_vec = -target2ant_vec
 
-        vec_list = [per_vec_1, per_vec_2, opposite_vec, jp.zeros(2)]
+        vec_list = jp.stack([per_vec_1, per_vec_2, opposite_vec, jp.zeros(2)], 0)
         chosen_vec = vec_list[choice] * self.target_step + tgt_xy
         chosen_vec = jp.where((jp.abs(chosen_vec) > self.cage_xy).any(), tgt_xy, chosen_vec)
         return rng, jp.concatenate((chosen_vec, jp.ones(1)), 0)
@@ -111,8 +112,9 @@ class AntTagEnv(env.Env):
         """Observe ant body position and velocities."""
         # Check if we can observe target. Otherwise just 0s
         target_xy = qp.pos[self.target_idx, :2]  # xy of target
-        ant_xy = qp.pos[self.torso_idx, :2] # xy of ant
-        if jp.norm(target_xy - ant_xy) <= self.visible_radius: target_xy[:] = jp.zeros(2)
+        ant_xy = qp.pos[self.torso_idx, :2] # xy of
+        target_xy = jp.where(jp.norm(target_xy - ant_xy) <= self.visible_radius, target_xy, jp.zeros(2))
+        # if jp.norm(target_xy - ant_xy) <= self.visible_radius: target_xy[:] = jp.zeros(2)
 
         # some pre-processing to pull joint angles and velocities
         (joint_angle,), (joint_vel,) = self.sys.joints[0].angle_vel(qp)
@@ -730,9 +732,10 @@ if __name__ == "__main__":
     e = AntTagEnv()
     from brax.envs.wrappers import EpisodeWrapper, VectorWrapper, AutoResetWrapper, VectorGymWrapper
     e = AutoResetWrapper(VectorWrapper(EpisodeWrapper(e, 1000, 1), 16))
-    e2 = VectorGymWrapper(e, seed=0, backend='gpu')
-    o = e2.reset()
+    o = e.reset(jp.random_prngkey(0))
+    egym = VectorGymWrapper(e, seed=0, backend='gpu')
+    ogym = egym.reset()
     # o = e.reset(jp.random_prngkey(0))
     o2 = e.step(o, jp.zeros((16, 8)))
-    o2 = e2.step(o, jp.zeros((16,8)))
+    ogym2 = egym.step(jp.zeros((16,8)))
     print(3)

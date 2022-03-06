@@ -1,3 +1,5 @@
+from typing import Sequence
+
 import jax
 from brax.jumpy import _in_jit, Carry, X, Y, Optional, Tuple, Callable, onp, Any
 
