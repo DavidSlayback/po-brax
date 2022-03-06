@@ -1,10 +1,12 @@
 """Trains an ant to "tag" a moving ball"""
+from functools import partial
 from typing import Tuple
 import brax
 import jax
 from brax import jumpy as jp
 from brax.envs import env
 import jax.numpy as jnp
+from more_jp import while_loop
 
 class AntTagEnv(env.Env):
     def __init__(self, **kwargs):
@@ -50,17 +52,26 @@ class AntTagEnv(env.Env):
         """Returns a target location at least min_spawn_location away from ant"""
         rng, rng1 = jp.random_split(rng, 2)
         xy = jp.random_uniform(rng1, (2,), -self.cage_xy, self.cage_xy)
-        # def sample(rng: jp.ndarray, xy: jp.ndarray) -> Tuple[jp.ndarray, jp.ndarray]:
+        minus_ant = lambda xy: xy - ant_xy
+        def resample(rngxy: Tuple[jp.ndarray, jp.ndarray]) -> Tuple[jp.ndarray, jp.ndarray]:
+            rng, xy = rngxy
+            _, rng1 = jp.random_split(rng, 2)
+            xy = jp.random_uniform(rng1, (2,), -self.cage_xy, self.cage_xy)
+            return rng1, xy
+
+        _, xy = while_loop(lambda rngxy: jp.norm(minus_ant(xy[1])) <= self.min_spawn_distance,
+                              resample,
+                              (rng1, xy))
+        # while jp.norm(xy - ant_xy) <= self.min_spawn_distance:
         #     rng, rng1 = jp.random_split(rng, 2)
         #     xy = jp.random_uniform(rng1, (2,), -self.cage_xy, self.cage_xy)
-        #     return rng, xy
-        # jax.lax.while_loop(jp.norm(xy - ant_xy) <= self.min_spawn_distance, sample, (rng, xy))
-        while jp.norm(xy - ant_xy) <= self.min_spawn_distance:
-            rng, rng1 = jp.random_split(rng, 2)
-            xy = jp.random_uniform(rng1, (2,), -self.cage_xy, self.cage_xy)
         target_z = 1.0
         target = jp.array([*xy, target_z]).transpose()
         return rng, target
+
+    @partial(jax.jit, static_argnums=(0,))
+    def _sample(self, rng: jp.ndarray):
+        return jp.random_uniform(rng, (2,), -self.cage_xy, self.cage_xy)
 
     def step(self, state: env.State, action: jp.ndarray) -> env.State:
         """Run one timestep of the environment's dynamics."""
