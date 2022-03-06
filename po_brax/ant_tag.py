@@ -7,6 +7,7 @@ from brax import jumpy as jp
 from brax.envs import env
 import jax.numpy as jnp
 from more_jp import while_loop
+from google.protobuf import text_format
 
 class AntTagEnv(env.Env):
     def __init__(self, **kwargs):
@@ -17,13 +18,19 @@ class AntTagEnv(env.Env):
         self.min_spawn_distance = kwargs.get('min_spawn_distance', 5.)
         self.cage_x, self.cage_y = kwargs.get('cage_xy', (4.5, 4.5))
         self.cage_xy = jp.array((self.cage_x, self.cage_y))
-        # Modify base any environment config
-        cfg = brax.envs.create('ant').sys.config
-        # Target sphere
-        target = cfg.bodies.add(name='Target', mass=1.)
-        target.frozen.all = True
-        sph = target.colliders.add().sphere
-        sph.radius = 0.5
+        # Add walls to config based on x,y
+        h_cap_length = self.cage_xy[0] * 2 + 2
+        v_cap_length = self.cage_xy[1] * 2 + 2
+        # See https://github.com/google/brax/issues/161
+        cfg = text_format.Parse(_SYSTEM_CONFIG, brax.Config())
+        arena = cfg.bodies.add(name='Arena', mass=1.)
+        for i in range(4):
+            cap = arena.colliders.add().capsule
+            x_or_y = (i % 0)
+            cap.radius = 1.; cap.length = self.cage_x * 2 if (i % 0) else self.cage_y
+            cap.pos = jp.zeros(3)
+            cap.rot = jp.zeros(3)
+
         super().__init__(_SYSTEM_CONFIG)
         # Ant and target indexes
         self.target_idx = self.sys.body.index['Target']
@@ -180,7 +187,7 @@ bodies {
       y: -45.0
     }
     capsule {
-      radius: 0.07999999821186066
+      radius: 0.08
       length: 0.4428427219390869
     }
     material {
@@ -208,7 +215,7 @@ bodies {
       y: -45.0
     }
     capsule {
-      radius: 0.07999999821186066
+      radius: 0.08
       length: 0.7256854176521301
       end: -1
     }
@@ -237,7 +244,7 @@ bodies {
       y: 45.0
     }
     capsule {
-      radius: 0.07999999821186066
+      radius: 0.08
       length: 0.4428427219390869
     }
     material {
@@ -265,7 +272,7 @@ bodies {
       y: 45.0
     }
     capsule {
-      radius: 0.07999999821186066
+      radius: 0.08
       length: 0.7256854176521301
       end: -1
     }
@@ -294,7 +301,7 @@ bodies {
       y: 45.0
     }
     capsule {
-      radius: 0.07999999821186066
+      radius: 0.08
       length: 0.4428427219390869
     }
     material {
@@ -322,7 +329,7 @@ bodies {
       y: 45.0
     }
     capsule {
-      radius: 0.07999999821186066
+      radius: 0.08
       length: 0.7256854176521301
       end: -1
     }
@@ -351,7 +358,7 @@ bodies {
       y: -45.0
     }
     capsule {
-      radius: 0.07999999821186066
+      radius: 0.08
       length: 0.4428427219390869
     }
     material {
@@ -379,7 +386,7 @@ bodies {
       y: -45.0
     }
     capsule {
-      radius: 0.07999999821186066
+      radius: 0.08
       length: 0.7256854176521301
       end: -1
     }
@@ -465,12 +472,12 @@ joints {
   parent: "$ Torso"
   child: "Aux 1"
   parent_offset {
-    x: 0.20000000298023224
-    y: 0.20000000298023224
+    x: 0.2
+    y: 0.2
   }
   child_offset {
-    x: -0.10000000149011612
-    y: -0.10000000149011612
+    x: -0.1
+    y: -0.1
   }
   rotation {
     y: -90.0
@@ -488,12 +495,12 @@ joints {
   parent: "Aux 1"
   child: "$ Body 4"
   parent_offset {
-    x: 0.10000000149011612
-    y: 0.10000000149011612
+    x: 0.1
+    y: 0.1
   }
   child_offset {
-    x: -0.20000000298023224
-    y: -0.20000000298023224
+    x: -0.2
+    y: -0.2
   }
   rotation {
     z: 135.0
@@ -511,12 +518,12 @@ joints {
   parent: "$ Torso"
   child: "Aux 2"
   parent_offset {
-    x: -0.20000000298023224
-    y: 0.20000000298023224
+    x: -0.2
+    y: 0.2
   }
   child_offset {
-    x: 0.10000000149011612
-    y: -0.10000000149011612
+    x: 0.1
+    y: -0.1
   }
   rotation {
     y: -90.0
@@ -534,12 +541,12 @@ joints {
   parent: "Aux 2"
   child: "$ Body 7"
   parent_offset {
-    x: -0.10000000149011612
-    y: 0.10000000149011612
+    x: -0.1
+    y: 0.1
   }
   child_offset {
-    x: 0.20000000298023224
-    y: -0.20000000298023224
+    x: 0.2
+    y: -0.2
   }
   rotation {
     z: 45.0
@@ -557,12 +564,12 @@ joints {
   parent: "$ Torso"
   child: "Aux 3"
   parent_offset {
-    x: -0.20000000298023224
-    y: -0.20000000298023224
+    x: -0.2
+    y: -0.2
   }
   child_offset {
-    x: 0.10000000149011612
-    y: 0.10000000149011612
+    x: 0.1
+    y: 0.1
   }
   rotation {
     y: -90.0
@@ -580,12 +587,12 @@ joints {
   parent: "Aux 3"
   child: "$ Body 10"
   parent_offset {
-    x: -0.10000000149011612
-    y: -0.10000000149011612
+    x: -0.1
+    y: -0.1
   }
   child_offset {
-    x: 0.20000000298023224
-    y: 0.20000000298023224
+    x: 0.2
+    y: 0.2
   }
   rotation {
     z: 135.0
@@ -603,12 +610,12 @@ joints {
   parent: "$ Torso"
   child: "Aux 4"
   parent_offset {
-    x: 0.20000000298023224
-    y: -0.20000000298023224
+    x: 0.2
+    y: -0.2
   }
   child_offset {
-    x: -0.10000000149011612
-    y: 0.10000000149011612
+    x: -0.1
+    y: 0.1
   }
   rotation {
     y: -90.0
@@ -626,12 +633,12 @@ joints {
   parent: "Aux 4"
   child: "$ Body 13"
   parent_offset {
-    x: 0.10000000149011612
-    y: -0.10000000149011612
+    x: 0.1
+    y: -0.1
   }
   child_offset {
-    x: -0.20000000298023224
-    y: 0.20000000298023224
+    x: -0.2
+    y: 0.2
   }
   rotation {
     z: 45.0
@@ -701,10 +708,10 @@ actuators {
 }
 friction: 1.0
 gravity {
-  z: -9.800000190734863
+  z: -9.8
 }
-angular_damping: -0.05000000074505806
-baumgarte_erp: 0.10000000149011612
+angular_damping: -0.05
+baumgarte_erp: 0.1
 collide_include {
   first: "$ Torso"
   second: "Ground"
@@ -725,7 +732,7 @@ collide_include {
   first: "$ Body 13"
   second: "Ground"
 }
-dt: 0.05000000074505806
+dt: 0.05
 substeps: 10
 """
 if __name__ == "__main__":
