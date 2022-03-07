@@ -22,27 +22,29 @@ def extend_ant_cfg(cfg: str = brax.envs.ant._SYSTEM_CONFIG, cage_max_xy: jp.ndar
     x_len, y_len = (2 * cage_max_xy) + offset
     arena = cfg.bodies.add(name='Arena', mass=1.)
     arena.frozen.all = True
-    rad = 1.
-    # Add default ant position
-    # df = cfg.defaults.add()
-    # df.qps.add(name="$ Torso", pos={'x': 0., 'y': 0, 'z': 0.6})
-    # df.qps.name = '$ Torso'
-    for i, name in enumerate(['N', 'E', 'S', 'W'][::2]):
+    rad = 0.5
+    for i, name in enumerate(['N', 'E', 'S', 'W']):
         l = x_len if name in ['N', 'S'] else y_len  # Collider capsule length
-        r = i * 90  # Collider rotation about z axis
         coll = arena.colliders.add()  # Collider
-        coll.rotation.z = r
-        coll.position.z = 1
-        if name == 'N': coll.position.y = cage_max_xy[1]
-        elif name == 'E': coll.position.x = cage_max_xy[0]
-        elif name == 'S': coll.position.y = -cage_max_xy[1]
-        else: coll.position.x = -cage_max_xy[0]
+        coll.position.z = 0.5
+        if name == 'N':
+            coll.position.y = cage_max_xy[1] + (offset / 2) + (rad / 2)
+            coll.rotation.y = 90
+        elif name == 'E':
+            coll.position.x = cage_max_xy[0] + (offset / 2) + (rad / 2)
+            coll.rotation.x = 90
+        elif name == 'S':
+            coll.position.y = -cage_max_xy[1] - + (offset / 2) - (rad / 2)
+            coll.rotation.y = 90
+        else:
+            coll.position.x = -cage_max_xy[0] - (offset / 2) - (rad / 2)
+            coll.rotation.x = 90
         cap = coll.capsule  # Create a capsule
         cap.radius = rad; cap.length = l
     for i in range(len(cfg.collide_include)):  # Anything that collides with ground should also collide with arena
         coll_body = cfg.collide_include[i]
         if coll_body.first not in ['Ground', 'Arena']: cfg.collide_include.add(first=coll_body.first, second='Arena')
-    print(cfg)
+    # print(cfg)
     return cfg
 
 
