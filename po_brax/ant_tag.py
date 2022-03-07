@@ -2,12 +2,44 @@
 from functools import partial
 from typing import Tuple
 import brax
+import gym.wrappers.record_video
 import jax
 from brax import jumpy as jp
 from brax.envs import env
 import jax.numpy as jnp
 from more_jp import while_loop
 from google.protobuf import text_format
+
+def extend_ant_cfg(cfg: str = brax.envs.ant._SYSTEM_CONFIG, cage_max_xy: jp.ndarray = jp.array([4.5, 4.5]), offset: float = 2) -> brax.Config:
+    cfg = text_format.Parse(cfg, brax.Config())  # Get ant config
+    # Add target
+    target = cfg.bodies.add(name='Target', mass=1.)
+    target.frozen.all = True
+    sph = target.colliders.add().sphere
+    sph.radius = 0.5
+    # Add walls
+    x_len, y_len = (2 * cage_max_xy) + offset
+    arena = cfg.bodies.add(name='Arena', mass=1.)
+    arena.frozen.all = True
+    rad = 1.
+    for i, name in enumerate(['N', 'E', 'S', 'W'][::2]):
+        l = x_len if name in ['N', 'S'] else y_len  # Collider capsule length
+        r = i * 90  # Collider rotation about z axis
+        coll = arena.colliders.add()  # Collider
+        coll.rotation.z = r
+        coll.position.z = 1
+        if name == 'N': coll.position.y = cage_max_xy[1]
+        elif name == 'E': coll.position.x = cage_max_xy[0]
+        elif name == 'S': coll.position.y = -cage_max_xy[1]
+        else: coll.position.x = -cage_max_xy[0]
+        cap = coll.capsule  # Create a capsule
+        cap.radius = rad; cap.length = l
+    for i in range(len(cfg.collide_include)):  # Anything that collides with ground should also collide with arena
+        coll_body = cfg.collide_include[i]
+        if coll_body.first not in ['Ground', 'Arena']: cfg.collide_include.add(first=coll_body.first, second='Arena')
+    print(cfg)
+    return cfg
+
 
 class AntTagEnv(env.Env):
     def __init__(self, **kwargs):
@@ -18,20 +50,10 @@ class AntTagEnv(env.Env):
         self.min_spawn_distance = kwargs.get('min_spawn_distance', 5.)
         self.cage_x, self.cage_y = kwargs.get('cage_xy', (4.5, 4.5))
         self.cage_xy = jp.array((self.cage_x, self.cage_y))
-        # Add walls to config based on x,y
-        h_cap_length = self.cage_xy[0] * 2 + 2
-        v_cap_length = self.cage_xy[1] * 2 + 2
         # See https://github.com/google/brax/issues/161
-        cfg = text_format.Parse(_SYSTEM_CONFIG, brax.Config())
-        arena = cfg.bodies.add(name='Arena', mass=1.)
-        for i in range(4):
-            cap = arena.colliders.add().capsule
-            x_or_y = (i % 0)
-            cap.radius = 1.; cap.length = self.cage_x * 2 if (i % 0) else self.cage_y
-            cap.pos = jp.zeros(3)
-            cap.rot = jp.zeros(3)
-
-        super().__init__(_SYSTEM_CONFIG)
+        cfg = extend_ant_cfg(cage_max_xy=self.cage_xy, offset=2.)
+        self.sys = brax.System(cfg)
+        # super().__init__(_SYSTEM_CONFIG)
         # Ant and target indexes
         self.target_idx = self.sys.body.index['Target']
         self.torso_idx = self.sys.body.index['$ Torso']
@@ -466,6 +488,31 @@ bodies {
     all: true
   }
 }
+bodies {
+  name: "Arena"
+  colliders {
+    position { x: 10.0 y: 0.0 z: 1.0 }
+    rotation { z: 0}
+    capsule {
+      length {}
+    }
+  }
+  colliders {
+    position { x: 8.5 y: 3.0 z: 1.0 }
+    box {
+      halfsize { x: 2.0 y: 0.5 z: 0.5 }
+    }
+  }
+  colliders {
+    position { x: 8.5 y: -3.0 z: 1.0 }
+    box {
+      halfsize { x: 2.0 y: 0.5 z: 0.5 }
+    }
+  }
+  inertia { x: 1.0 y: 1.0 z: 1.0 }
+  mass: 1
+  frozen { all: true }
+}
 joints {
   name: "$ Torso_Aux 1"
   stiffness: 18000.0
@@ -736,13 +783,21 @@ dt: 0.05
 substeps: 10
 """
 if __name__ == "__main__":
+    # test = extend_ant_cfg()
     e = AntTagEnv()
-    from brax.envs.wrappers import EpisodeWrapper, VectorWrapper, AutoResetWrapper, VectorGymWrapper
-    e = AutoResetWrapper(VectorWrapper(EpisodeWrapper(e, 1000, 1), 16))
-    o = e.reset(jp.random_prngkey(0))
-    egym = VectorGymWrapper(e, seed=0, backend='gpu')
+    from brax.envs.wrappers import EpisodeWrapper, VectorWrapper, AutoResetWrapper, VectorGymWrapper, GymWrapper
+    # e = AutoResetWrapper(VectorWrapper(EpisodeWrapper(e, 1000, 1), 16))
+    e = AutoResetWrapper(EpisodeWrapper(e, 1000, 1))
+    egym = GymWrapper(e, seed=0, backend='cpu')
+    # egym = VectorGymWrapper(e, seed=0, backend='cpu')
+    egym = gym.wrappers.record_video.RecordVideo(egym, 'videos/', video_length=2)
     ogym = egym.reset()
     # o = e.reset(jp.random_prngkey(0))
-    o2 = e.step(o, jp.zeros((16, 8)))
-    ogym2 = egym.step(jp.zeros((16,8)))
+    # o2 = jax.jit(e.step)(o, jp.zeros((16, 8)))
+    # for t in range(200):
+    #     o2 = e.step(o2, jp.zeros((16, 8)))
+    # for t in range(200):
+    #     ogym2 = egym.step(jp.zeros((16,8)))
+    for t in range(200):
+        ogym2 = egym.step(egym.action_space.sample())
     print(3)
