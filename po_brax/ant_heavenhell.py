@@ -35,7 +35,7 @@ def extend_ant_cfg(cfg: str = brax.envs.ant._SYSTEM_CONFIG, hhp: jp.ndarray = jp
     cap = arena.colliders.add(position={'y': top_t, 'z': 0.5}, rotation={'y': 90}).capsule
     cap.radius = rad; cap.length = toplen
     # Sides of top of T
-    cap = arena.colliders.add(position={'x': hhp[0, 0] - (rad / 2) - (space_around_heaven / 2), 'y':, 'z': 0.5}, rotation={'x': 90}).capsule
+    # cap = arena.colliders.add(position={'x': hhp[0, 0] - (rad / 2) - (space_around_heaven / 2), 'y':, 'z': 0.5}, rotation={'x': 90}).capsule
     cap.radius = rad; cap.length = space_around_heaven * 2
 
     for i in range(len(cfg.collide_include)):  # Anything that collides with ground should also collide with arena
