@@ -7,9 +7,8 @@ import jax
 from brax import jumpy as jp
 from brax.envs import env
 import jax.numpy as jnp
-from more_jp import while_loop, meshgrid
+from .more_jp import while_loop, meshgrid, index_add
 from google.protobuf import text_format
-from more_jp import index_add
 
 def extend_ant_cfg(cfg: str = brax.envs.ant._SYSTEM_CONFIG, cage_max_xy: jp.ndarray = jp.array([4.5, 4.5]), offset: float = 2) -> brax.Config:
     cfg = text_format.Parse(cfg, brax.Config())  # Get ant config
