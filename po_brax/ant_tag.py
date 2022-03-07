@@ -64,7 +64,7 @@ class AntTagEnv(env.Env):
         self.torso_idx = self.sys.body.index['$ Torso']
         self.ant_indices = jp.arange(self.torso_idx, self.target_idx)  # All parts of ant
         self.ant_l = self.ant_indices.shape[0]
-        self.ant_mg = meshgrid(self.ant_indices, jp.arange(0,2))
+        self.ant_mg = tuple(meshgrid(self.ant_indices, jp.arange(0,2)))
 
     def reset(self, rng: jp.ndarray) -> env.State:
         rng, rng1, rng2 = jp.random_split(rng, 3)
