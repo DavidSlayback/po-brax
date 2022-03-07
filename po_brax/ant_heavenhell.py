@@ -11,7 +11,7 @@ from more_jp import while_loop, meshgrid
 from google.protobuf import text_format
 from more_jp import index_add
 
-def extend_ant_cfg(cfg: str = brax.envs.ant._SYSTEM_CONFIG, hhp: jp.ndarray = jp.array([[-6.25, 6.0], [6.25, 6.0], [0., 6.]]), hall_width: float = 2) -> brax.Config:
+def extend_ant_cfg(cfg: str = brax.envs.ant._SYSTEM_CONFIG, hhp: jp.ndarray = jp.array([[-6.25, 6.0], [6.25, 6.0], [0., 6.]]), space_around_heaven: float = 1) -> brax.Config:
     cfg = text_format.Parse(cfg, brax.Config())  # Get ant config
     # Add priest
     target = cfg.bodies.add(name='Priest', mass=1.)
@@ -25,10 +25,19 @@ def extend_ant_cfg(cfg: str = brax.envs.ant._SYSTEM_CONFIG, hhp: jp.ndarray = jp
     arena.frozen.all = True
     rad = 0.5
     # Get wall lengths
-    top_t = hhp[0,1] + (hall_width / 2)  # y position of top wall
-    toplen = hhp[1,0] - hhp[0,0] + hall_width  # length of top wall
+    toplen = hhp[1,0] - hhp[0,0] + (2 * space_around_heaven) + rad  # length of top wall
+    bot_and_side_len = 2 * space_around_heaven  # Bottom of T, sides of top of T
+    underside_len = hhp[0,0] + rad / 2  # Undersides of top of T
+    stalk_len = hhp[0,1] - space_around_heaven + 2 # Sides of len of T
+    # Top of T
+    top_t = hhp[0,1] + space_around_heaven  # y position of top wall
+    toplen = hhp[1,0] - hhp[0,0] + (2 * space_around_heaven) + rad  # length of top wall
     cap = arena.colliders.add(position={'y': top_t, 'z': 0.5}, rotation={'y': 90}).capsule
     cap.radius = rad; cap.length = toplen
+    # Sides of top of T
+    cap = arena.colliders.add(position={'x': hhp[0, 0] - (rad / 2) - (space_around_heaven / 2), 'y':, 'z': 0.5}, rotation={'x': 90}).capsule
+    cap.radius = rad; cap.length = space_around_heaven * 2
+
     for i in range(len(cfg.collide_include)):  # Anything that collides with ground should also collide with arena
         coll_body = cfg.collide_include[i]
         if coll_body.first not in ['Ground', 'Arena']: cfg.collide_include.add(first=coll_body.first, second='Arena')
@@ -44,7 +53,7 @@ class AntTagEnv(env.Env):
         self._hhp = jp.concatenate((self.heaven_hell_xy, self.priest_pos[None, ...]), axis=0)
         self.visible_radius = kwargs.get('visible_radius', 2.)  # Where can I see priest
         # See https://github.com/google/brax/issues/161
-        cfg = extend_ant_cfg(hhp=self._hhp, offset=2.)
+        cfg = extend_ant_cfg(hhp=self._hhp, space_around_heaven=2.)
         self.sys = brax.System(cfg)
         # super().__init__(_SYSTEM_CONFIG)
         # Ant and target indexes
