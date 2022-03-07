@@ -7,8 +7,9 @@ import jax
 from brax import jumpy as jp
 from brax.envs import env
 import jax.numpy as jnp
-from more_jp import while_loop
+from more_jp import while_loop, meshgrid
 from google.protobuf import text_format
+from more_jp import index_add
 
 def extend_ant_cfg(cfg: str = brax.envs.ant._SYSTEM_CONFIG, cage_max_xy: jp.ndarray = jp.array([4.5, 4.5]), offset: float = 2) -> brax.Config:
     cfg = text_format.Parse(cfg, brax.Config())  # Get ant config
@@ -22,6 +23,10 @@ def extend_ant_cfg(cfg: str = brax.envs.ant._SYSTEM_CONFIG, cage_max_xy: jp.ndar
     arena = cfg.bodies.add(name='Arena', mass=1.)
     arena.frozen.all = True
     rad = 1.
+    # Add default ant position
+    # df = cfg.defaults.add()
+    # df.qps.add(name="$ Torso", pos={'x': 0., 'y': 0, 'z': 0.6})
+    # df.qps.name = '$ Torso'
     for i, name in enumerate(['N', 'E', 'S', 'W'][::2]):
         l = x_len if name in ['N', 'S'] else y_len  # Collider capsule length
         r = i * 90  # Collider rotation about z axis
@@ -57,16 +62,21 @@ class AntTagEnv(env.Env):
         # Ant and target indexes
         self.target_idx = self.sys.body.index['Target']
         self.torso_idx = self.sys.body.index['$ Torso']
+        self.ant_indices = jp.arange(self.torso_idx, self.target_idx)  # All parts of ant
+        self.ant_l = self.ant_indices.shape[0]
+        self.ant_mg = meshgrid(self.ant_indices, jp.arange(0,2))
 
     def reset(self, rng: jp.ndarray) -> env.State:
         rng, rng1, rng2 = jp.random_split(rng, 3)
         qpos = self.sys.default_angle() + jp.random_uniform(
             rng1, (self.sys.num_joint_dof,), -.1, .1)
         qvel = jp.random_uniform(rng2, (self.sys.num_joint_dof,), -.1, .1)
+        ant_pos = jp.random_uniform(rng1, (2,), -self.cage_xy, self.cage_xy)
         qp = self.sys.default_qp(joint_angle=qpos, joint_velocity=qvel)
-        ant = jp.index_update(qp.pos[self.torso_idx], jp.arange(0,2), jp.random_uniform(rng1, (2,), -self.cage_xy, self.cage_xy))
-        rng, tgt = self._random_target(rng, ant[:2])
-        pos = jp.index_update(qp.pos, jp.array((self.target_idx, self.torso_idx), dtype=jp.int32), jp.stack([tgt, ant], 0))
+        pos = index_add(qp.pos, self.ant_mg, ant_pos[...,None])
+        # ant = jp.index_update(qp.pos[self.torso_idx], jp.arange(0,2), ant_pos)
+        rng, tgt = self._random_target(rng, ant_pos)
+        pos = jp.index_update(pos, self.target_idx, tgt)
         qp = qp.replace(pos=pos)
         info = self.sys.info(qp)
         obs = self._get_obs(qp, info)
@@ -94,7 +104,7 @@ class AntTagEnv(env.Env):
         # while jp.norm(xy - ant_xy) <= self.min_spawn_distance:
         #     rng, rng1 = jp.random_split(rng, 2)
         #     xy = jp.random_uniform(rng1, (2,), -self.cage_xy, self.cage_xy)
-        target_z = 1.0
+        target_z = 0.5
         target = jp.array([*xy, target_z]).transpose()
         return rng, target
 
@@ -457,61 +467,6 @@ bodies {
     }
     all: true
   }
-}
-bodies {
-  name: "Target"
-  colliders {
-    sphere {
-      radius: 0.5
-    }
-    material {
-      friction: 1.0
-    }
-  }
-  inertia {
-    x: 1.0
-    y: 1.0
-    z: 1.0
-  }
-  mass: 1.0
-  frozen {
-    position {
-      x: 1.0
-      y: 1.0
-      z: 1.0
-    }
-    rotation {
-      x: 1.0
-      y: 1.0
-      z: 1.0
-    }
-    all: true
-  }
-}
-bodies {
-  name: "Arena"
-  colliders {
-    position { x: 10.0 y: 0.0 z: 1.0 }
-    rotation { z: 0}
-    capsule {
-      length {}
-    }
-  }
-  colliders {
-    position { x: 8.5 y: 3.0 z: 1.0 }
-    box {
-      halfsize { x: 2.0 y: 0.5 z: 0.5 }
-    }
-  }
-  colliders {
-    position { x: 8.5 y: -3.0 z: 1.0 }
-    box {
-      halfsize { x: 2.0 y: 0.5 z: 0.5 }
-    }
-  }
-  inertia { x: 1.0 y: 1.0 z: 1.0 }
-  mass: 1
-  frozen { all: true }
 }
 joints {
   name: "$ Torso_Aux 1"

@@ -1,7 +1,7 @@
 from typing import Sequence
 
 import jax
-from brax.jumpy import _in_jit, Carry, X, Y, Optional, Tuple, Callable, onp, Any
+from brax.jumpy import _in_jit, Carry, X, Y, Optional, Tuple, Callable, onp, Any, _which_np, jnp, ndarray
 
 
 def scan(f: Callable[[Carry, X], Tuple[Carry, Y]],
@@ -51,3 +51,16 @@ def while_loop(cond_fun: Callable[[X], Any],
         while cond_fun(val):
             val = body_fun(val)
         return val
+
+def index_add(x: ndarray, idx: ndarray, y: ndarray) -> ndarray:
+  """Pure equivalent of x[idx] += y."""
+  if _which_np(x) is jnp:
+    return x.at[idx].add(y)
+  x = onp.copy(x)
+  x[idx] += y
+  return x
+
+def meshgrid(*xi, copy: bool = True, sparse: bool = False, indexing: str = 'xy') -> ndarray:
+    if _which_np(xi[0]) is jnp:
+        return jnp.meshgrid(*xi, copy=copy, sparse=sparse, indexing=indexing)
+    return onp.meshgrid(*xi, copy=copy, sparse=sparse, indexing=indexing)
