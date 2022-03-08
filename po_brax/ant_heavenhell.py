@@ -30,6 +30,10 @@ def extend_ant_cfg(cfg: str = brax.envs.ant._SYSTEM_CONFIG, hhp: jp.ndarray = jp
     draw_t_maze(cfg, t_x=hhp[:,0].max() + hallway_width / 2, t_y=hhp[:,1].max() + hallway_width / 2, hallway_width=hallway_width)
     for b in ant_body_names:
         cfg.collide_include.add(first=b, second='Arena')
+    # Need to match control frequency with Hai's. He uses 15 frame skip, timestep = 0.02, so 0.3 seconds between actions
+    # Default is timestep = 0.05, substeps = 10
+    # self.unwrapped.sys.config.dt *= action_repeat
+    # self.unwrapped.sys.config.substeps *= action_repeat
     return cfg
 
 
@@ -40,8 +44,11 @@ class AntHeavenHellEnv(env.Env):
         self.priest_pos = jp.array(kwargs.get('priest_pos', [0., 7.]))  # Priest is at 0,6 xy
         self._hhp = jp.concatenate((jp.concatenate((self.heaven_hell_xy, self.priest_pos[None, ...]), axis=0), jp.ones((3, 1))), axis=1)
         self.visible_radius = kwargs.get('visible_radius', 2.)  # Where can I see priest
+        frameskip = kwargs.get('frame_skip', 6.)  # 0.3 seconds between acitons in Hai's, base dt is 0.05
         # See https://github.com/google/brax/issues/161
         cfg = extend_ant_cfg(hhp=self._hhp, hallway_width=2.)
+        cfg.dt *= frameskip
+        cfg.substeps = int(cfg.substeps * frameskip)
         self.sys = brax.System(cfg)
         # super().__init__(_SYSTEM_CONFIG)
         # Ant and target indexes

@@ -20,13 +20,15 @@ from brax.envs import ur5e
 from brax.envs import walker2d
 from brax.envs import wrappers
 from .ant_tag import AntTagEnv
+from .ant_heavenhell import AntHeavenHellEnv
 from brax.envs.env import Env, State, Wrapper
 import gym
 
-
+HAI_ACTION_REPEAT = 6
 _envs = {
     'ant': ant.Ant,
     'ant_tag': AntTagEnv,
+    'ant_heavenhell': AntHeavenHellEnv,
     'fast': fast.Fast,
     'fetch': fetch.Fetch,
     'grasp': grasp.Grasp,
