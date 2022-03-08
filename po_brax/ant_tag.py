@@ -86,7 +86,6 @@ class AntTagEnv(env.Env):
         ant_pos = jp.random_uniform(rng1, (2,), -self.cage_xy, self.cage_xy)
         qp = self.sys.default_qp(joint_angle=qpos, joint_velocity=qvel)
         pos = index_add(qp.pos, self.ant_mg, ant_pos[...,None])
-        # ant = jp.index_update(qp.pos[self.torso_idx], jp.arange(0,2), ant_pos)
         rng, tgt = self._random_target(rng, ant_pos)
         pos = jp.index_update(pos, self.target_idx, tgt)
         qp = qp.replace(pos=pos)
@@ -119,10 +118,6 @@ class AntTagEnv(env.Env):
         target_z = 0.5
         target = jp.array([*xy, target_z]).transpose()
         return rng, target
-
-    @partial(jax.jit, static_argnums=(0,))
-    def _sample(self, rng: jp.ndarray):
-        return jp.random_uniform(rng, (2,), -self.cage_xy, self.cage_xy)
 
     def step(self, state: env.State, action: jp.ndarray) -> env.State:
         """Run one timestep of the environment's dynamics."""
@@ -206,7 +201,7 @@ if __name__ == "__main__":
     e = AutoResetWrapper(EpisodeWrapper(e, 1000, 1))
     egym = GymWrapper(e, seed=0, backend='cpu')
     # egym = VectorGymWrapper(e, seed=0, backend='cpu')
-    egym = gym.wrappers.record_video.RecordVideo(egym, 'videos/', video_length=2)
+    # egym = gym.wrappers.record_video.RecordVideo(egym, 'videos/', video_length=2)
     ogym = egym.reset()
     o = e.reset(jp.random_prngkey(0))
     # o2 = jax.jit(e.step)(o, jp.zeros((16, 8)))

@@ -1,16 +1,11 @@
 """Trains an ant to go to heaven by following the advice of a priest"""
-from functools import partial
-from typing import Tuple
 import brax
-import gym.wrappers.record_video
-import jax
 from brax import jumpy as jp
 from brax.envs import env
-import jax.numpy as jnp
-from more_jp import while_loop, meshgrid
+from more_jp import meshgrid, index_add, choice, atleast_1d
 from utils import draw_t_maze
 from google.protobuf import text_format
-from more_jp import index_add
+
 
 def extend_ant_cfg(cfg: str = brax.envs.ant._SYSTEM_CONFIG, hhp: jp.ndarray = jp.array([[-6.25, 6.0], [6.25, 6.0], [0., 6.]]), hallway_width: float = 2) -> brax.Config:
     cfg = text_format.Parse(cfg, brax.Config())  # Get ant config
@@ -22,7 +17,6 @@ def extend_ant_cfg(cfg: str = brax.envs.ant._SYSTEM_CONFIG, hhp: jp.ndarray = jp
     sph.radius = 0.5
     aqp = cfg.defaults.add().qps.add(name='Priest')  # Default priest position, never changes
     aqp.pos.x, aqp.pos.y, aqp.pos.z = hhp[-1, 0], hhp[-1, 1], 1.
-    # TODO: Add visuals for heaven and hell. Heaven is "target" since they hardcode those as red
     heaven = cfg.bodies.add(name='Target', mass=1.)
     heaven.frozen.all = True
     sph = heaven.colliders.add().sphere
@@ -44,7 +38,7 @@ class AntHeavenHellEnv(env.Env):
         # Preliminaries
         self.heaven_hell_xy = jp.array(kwargs.get('heaven_hell', [[-6.25, 6.0], [6.25, 6.0]]))
         self.priest_pos = jp.array(kwargs.get('priest_pos', [0., 6.]))  # Priest is at 0,6 xy
-        self._hhp = jp.concatenate((self.heaven_hell_xy, self.priest_pos[None, ...]), axis=0)
+        self._hhp = jp.concatenate((jp.concatenate((self.heaven_hell_xy, self.priest_pos[None, ...]), axis=0), jp.ones((3, 1))), axis=1)
         self.visible_radius = kwargs.get('visible_radius', 2.)  # Where can I see priest
         # See https://github.com/google/brax/issues/161
         cfg = extend_ant_cfg(hhp=self._hhp, hallway_width=2.)
@@ -53,6 +47,7 @@ class AntHeavenHellEnv(env.Env):
         # Ant and target indexes
         self.target_idx = self.sys.body.index['Target']
         self.hell_idx = self.sys.body.index['Hell']
+        self.priest_idx = self.sys.body.index['Hell']
         self.torso_idx = self.sys.body.index['$ Torso']
         self.ant_indices = jp.arange(self.torso_idx, self.target_idx)  # All parts of ant
         self.ant_l = self.ant_indices.shape[0]
@@ -60,17 +55,14 @@ class AntHeavenHellEnv(env.Env):
         self._init_ant_pos = jp.array([[-0.5, 0.5], [0.5, 1.5]])  # Low and high xy for ant position
 
     def reset(self, rng: jp.ndarray) -> env.State:
-        rng, rng1, rng2 = jp.random_split(rng, 3)
+        rng, rng1, rng2, rng3 = jp.random_split(rng, 4)
         qpos = self.sys.default_angle() + jp.random_uniform(
             rng1, (self.sys.num_joint_dof,), -.1, .1)
         qvel = jp.random_uniform(rng2, (self.sys.num_joint_dof,), -.1, .1)
         ant_pos = jp.random_uniform(rng1, (2,), *self._init_ant_pos)  # Sample ant torso position
         qp = self.sys.default_qp(joint_angle=qpos, joint_velocity=qvel)
         pos = index_add(qp.pos, self.ant_mg, ant_pos[...,None])
-        flip = jp.where(jp.random_uniform(rng2, ()) > 0.5, jp.int32(1), jp.int32(0)) # Sample heaven
-        # TODO: _hhp is an ndarray at this point in a JIT The numpy.ndarray conversion method __array__() was called on the JAX Tracer object Traced<ShapedArray(int32[])>with<DynamicJaxprTrace(level=0/1)>
-        target_pos = jp.concatenate([self._hhp[flip], jp.ones(1)])
-        hell_pos = jp.concatenate([self._hhp[1 - flip], jp.ones(1)])
+        target_pos, hell_pos = choice(rng3, self._hhp[:2], (2,), False)
         pos = jp.index_update(pos, jp.stack([self.target_idx, self.hell_idx]), jp.stack([target_pos, hell_pos]))
         qp = qp.replace(pos=pos)
         info = self.sys.info(qp)
@@ -80,7 +72,7 @@ class AntHeavenHellEnv(env.Env):
             'heavens': zero,
             'hells': zero
         }
-        info = {'rng': rng, 'heaven_idx': flip}
+        info = {'rng': rng}
         return env.State(qp, obs, reward, done, metrics, info)
 
 
@@ -88,11 +80,11 @@ class AntHeavenHellEnv(env.Env):
         """Run one timestep of the environment's dynamics."""
         qp, info = self.sys.step(state.qp, action)
         # Done if we go to heaven or hell
-        in_range = (jp.norm(self._hhp - qp.pos[self.torso_idx, :2], axis=-1) <= self.visible_radius)  # In range of pos1, pos2, priest
-        heaven_idx = state.info['heaven_idx']  # Which position is heaven
+        heaven_hell_priest = jp.stack([qp.pos[self.target_idx], qp.pos[self.hell_idx], qp.pos[self.priest_idx]])
+        in_range = (jp.norm(heaven_hell_priest[:, :2] - qp.pos[self.torso_idx, :2], axis=-1) <= self.visible_radius)  # In range of pos1, pos2, priest
         priest_in_range = in_range[-1]
-        reward = jp.where(in_range[heaven_idx], jp.float32(1), jp.float32(0)) # +1 for heaven
-        reward = jp.where(in_range[1 - heaven_idx], jp.float32(-1), reward)  # -1 for hell
+        reward = jp.where(in_range[0], jp.float32(1), jp.float32(0)) # +1 for heaven
+        reward = jp.where(in_range[1], jp.float32(-1), reward)  # -1 for hell
         done = jp.where(reward != 0, jp.float32(1), jp.float32(0))  # Done at either position
         # Get observation
         obs = self._get_obs(qp, info, priest_in_range)
@@ -103,14 +95,15 @@ class AntHeavenHellEnv(env.Env):
         """Observe ant body position and velocities."""
         # some pre-processing to pull joint angles and velocities
         (joint_angle,), (joint_vel,) = self.sys.joints[0].angle_vel(qp)
+        tgt_x = atleast_1d(qp.pos[self.target_idx][0])
+        heaven_direction = jp.where(priest_in_range > 0, jp.sign(tgt_x), jp.zeros_like(tgt_x))
 
         # qpos:
         # XYZ of the torso (3,)
         # orientation of the torso as quaternion (4,)
         # joint angles (8,)
-        # target xy (2,)
-        # qpos = [qp.pos[0], qp.rot[0], joint_angle, heaven_direction]
-        qpos = [qp.pos[0], qp.rot[0], joint_angle]
+        # heaven direction (1,)
+        qpos = [qp.pos[0], qp.rot[0], joint_angle, heaven_direction]
 
         # qvel:
         # velcotiy of the torso (3,)
@@ -141,7 +134,7 @@ if __name__ == "__main__":
     e = AutoResetWrapper(EpisodeWrapper(e, 1000, 1))
     egym = GymWrapper(e, seed=0, backend='cpu')
     # egym = VectorGymWrapper(e, seed=0, backend='cpu')
-    egym = gym.wrappers.record_video.RecordVideo(egym, 'videos/', video_length=2)
+    # egym = gym.wrappers.record_video.RecordVideo(egym, 'videos/', video_length=2)
     ogym = egym.reset()
     # o = e.reset(jp.random_prngkey(0))
     # o2 = jax.jit(e.step)(o, jp.zeros((16, 8)))

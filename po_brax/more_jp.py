@@ -1,29 +1,7 @@
-from typing import Sequence
+from typing import Sequence, Union
 
 import jax
-from brax.jumpy import _in_jit, Carry, X, Y, Optional, Tuple, Callable, onp, Any, _which_np, jnp, ndarray
-
-
-def scan(f: Callable[[Carry, X], Tuple[Carry, Y]],
-         init: Carry,
-         xs: X,
-         length: Optional[int] = None,
-         reverse: bool = False,
-         unroll: int = 1) -> Tuple[Carry, Y]:
-  """Scan a function over leading array axes while carrying along state."""
-  if _in_jit():
-      return jax.lax.scan(f, init, xs, length, reverse, unroll)
-  else:
-      xs_flat, xs_tree = jax.tree_flatten(xs)
-      carry = init
-      ys = []
-      maybe_reversed = reversed if reverse else lambda x: x
-      for i in maybe_reversed(range(length)):
-        xs_slice = [x[i] for x in xs_flat]
-        carry, y = f(carry, jax.tree_unflatten(xs_tree, xs_slice))
-        ys.append(y)
-      stacked_y = jax.tree_map(lambda *y: onp.vstack(y), *maybe_reversed(ys))
-      return carry, stacked_y
+from brax.jumpy import _in_jit, X, Optional, Tuple, Callable, onp, Any, _which_np, jnp, ndarray
 
 def while_loop(cond_fun: Callable[[X], Any],
                body_fun: Callable[[X], X],
@@ -64,3 +42,24 @@ def meshgrid(*xi, copy: bool = True, sparse: bool = False, indexing: str = 'xy')
     if _which_np(xi[0]) is jnp:
         return jnp.meshgrid(*xi, copy=copy, sparse=sparse, indexing=indexing)
     return onp.meshgrid(*xi, copy=copy, sparse=sparse, indexing=indexing)
+
+
+def randint(rng: ndarray, shape: Tuple[int, ...] = (),
+            low: Optional[int] = 0, high: Optional[int] = 1) -> ndarray:
+    """Sample integers in [low, high) with given shape."""
+    if _which_np(rng) is jnp:
+        return jax.random.randint(rng, shape=shape, minval=low, maxval=high)
+    else:
+        return onp.random.default_rng(rng).integers(low=low, high=high, size=shape)
+
+
+def choice(rng: ndarray, a: Union[int, Any], shape: Tuple[int,...] = (),
+           replace: bool = True, p: Optional[Any] = None, axis: int = 0) -> ndarray:
+    """Pick from  in [low, high) with given shape."""
+    if _which_np(rng) is jnp:
+        return jax.random.choice(rng, a, shape=shape, replace=replace, p=p, axis=axis)
+    else:
+        return onp.random.default_rng(rng).choice(a, size=shape, replace=replace, p=p, axis=axis)
+
+def atleast_1d(*arys) -> ndarray:
+    return _which_np(*arys).atleast_1d(*arys)
