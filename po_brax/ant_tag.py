@@ -10,6 +10,36 @@ import jax.numpy as jnp
 from .more_jp import while_loop, meshgrid, index_add
 from google.protobuf import text_format
 
+def add_walls(cfg: str = brax.envs.ant._SYSTEM_CONFIG):
+    cfg = text_format.Parse(cfg, brax.Config())
+    # Add target
+    target = cfg.bodies.add(name='Target', mass=1.)
+    target.frozen.all = True
+    sph = target.colliders.add().sphere
+    sph.radius = 0.5
+    cage_x = cage_y = 5.25
+    wall_half_width = 0.25
+    cage_z = cage_half_height = 0.5
+    # Add walls (boxes, collision may not work)
+    arena = cfg.bodies.add(name='Arena', mass=1.)
+    arena.frozen.all = True
+    for i in range(4):  # NESW
+        is_y = bool(i % 2)  # Odds have y position, evens are x
+        position_sign = 1. if (i in (0, 1)) else -1.  # N E are positive, S W are negative
+        box = arena.colliders.add(position={'x': 0 if is_y else cage_x * position_sign,
+                                            'y': 0 if (not is_y) else cage_y * position_sign,
+                                            'z': cage_z}).box
+        box.halfsize = {'x': wall_half_width if (not is_y) else cage_y,
+                        'y': wall_half_width if is_y else cage_x,
+                        'z': cage_half_height}
+        for i in range(len(cfg.collide_include)):  # Anything that collides with ground should also collide with arena
+            coll_body = cfg.collide_include[i]
+            if coll_body.first not in ['Ground', 'Arena']: cfg.collide_include.add(first=coll_body.first, second='Arena')
+
+
+
+
+
 def extend_ant_cfg(cfg: str = brax.envs.ant._SYSTEM_CONFIG, cage_max_xy: jp.ndarray = jp.array([4.5, 4.5]), offset: float = 2) -> brax.Config:
     cfg = text_format.Parse(cfg, brax.Config())  # Get ant config
     # Add target
@@ -57,7 +87,8 @@ class AntTagEnv(env.Env):
         self.cage_x, self.cage_y = kwargs.get('cage_xy', (4.5, 4.5))
         self.cage_xy = jp.array((self.cage_x, self.cage_y))
         # See https://github.com/google/brax/issues/161
-        cfg = extend_ant_cfg(cage_max_xy=self.cage_xy, offset=2.)
+        cfg = add_walls()
+        # cfg = extend_ant_cfg(cage_max_xy=self.cage_xy, offset=2.)
         self.sys = brax.System(cfg)
         # super().__init__(_SYSTEM_CONFIG)
         # Ant and target indexes
