@@ -7,7 +7,7 @@ from utils import draw_t_maze
 from google.protobuf import text_format
 
 
-def extend_ant_cfg(cfg: str = brax.envs.ant._SYSTEM_CONFIG, hhp: jp.ndarray = jp.array([[-6.25, 6.0], [6.25, 6.0], [0., 6.]]), hallway_width: float = 2) -> brax.Config:
+def extend_ant_cfg(cfg: str = brax.envs.ant._SYSTEM_CONFIG, hhp: jp.ndarray = jp.array([[-6.25, 7.], [6.25, 7.], [0., 7.]]), hallway_width: float = 2) -> brax.Config:
     cfg = text_format.Parse(cfg, brax.Config())  # Get ant config
     ant_body_names = [b.name for b in cfg.bodies if b.name != 'Ground']
     # Add priest
@@ -36,8 +36,8 @@ def extend_ant_cfg(cfg: str = brax.envs.ant._SYSTEM_CONFIG, hhp: jp.ndarray = jp
 class AntHeavenHellEnv(env.Env):
     def __init__(self, **kwargs):
         # Preliminaries
-        self.heaven_hell_xy = jp.array(kwargs.get('heaven_hell', [[-6.25, 6.0], [6.25, 6.0]]))
-        self.priest_pos = jp.array(kwargs.get('priest_pos', [0., 6.]))  # Priest is at 0,6 xy
+        self.heaven_hell_xy = jp.array(kwargs.get('heaven_hell', [[-6.25, 7.], [6.25, 7.]]))
+        self.priest_pos = jp.array(kwargs.get('priest_pos', [0., 7.]))  # Priest is at 0,6 xy
         self._hhp = jp.concatenate((jp.concatenate((self.heaven_hell_xy, self.priest_pos[None, ...]), axis=0), jp.ones((3, 1))), axis=1)
         self.visible_radius = kwargs.get('visible_radius', 2.)  # Where can I see priest
         # See https://github.com/google/brax/issues/161
