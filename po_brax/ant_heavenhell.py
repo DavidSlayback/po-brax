@@ -68,6 +68,7 @@ class AntHeavenHellEnv(env.Env):
         qp = self.sys.default_qp(joint_angle=qpos, joint_velocity=qvel)
         pos = index_add(qp.pos, self.ant_mg, ant_pos[...,None])
         flip = jp.where(jp.random_uniform(rng2, ()) > 0.5, jp.int32(1), jp.int32(0)) # Sample heaven
+        # TODO: _hhp is an ndarray at this point in a JIT The numpy.ndarray conversion method __array__() was called on the JAX Tracer object Traced<ShapedArray(int32[])>with<DynamicJaxprTrace(level=0/1)>
         target_pos = jp.concatenate([self._hhp[flip], jp.ones(1)])
         hell_pos = jp.concatenate([self._hhp[1 - flip], jp.ones(1)])
         pos = jp.index_update(pos, jp.stack([self.target_idx, self.hell_idx]), jp.stack([target_pos, hell_pos]))
