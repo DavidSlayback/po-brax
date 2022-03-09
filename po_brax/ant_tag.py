@@ -1,14 +1,12 @@
 """Trains an ant to "tag" a moving ball"""
-from functools import partial
 from typing import Tuple
 import brax
-import gym.wrappers.record_video
 import jax
 from brax import jumpy as jp
 from brax.envs import env
 import jax.numpy as jnp
-from more_jp import while_loop, meshgrid, index_add
-from utils import add_capsule_wall_to_body, draw_arena
+from .more_jp import while_loop, meshgrid, index_add
+from .utils import draw_arena
 from google.protobuf import text_format
 
 # def add_walls(cfg: str = brax.envs.ant._SYSTEM_CONFIG):
