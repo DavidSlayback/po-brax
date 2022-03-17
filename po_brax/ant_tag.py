@@ -5,8 +5,8 @@ import jax
 from brax import jumpy as jp
 from brax.envs import env
 import jax.numpy as jnp
-from .more_jp import while_loop, meshgrid, index_add
-from .utils import draw_arena
+from more_jp import while_loop, meshgrid, index_add
+from utils import draw_arena
 from google.protobuf import text_format
 
 # def add_walls(cfg: str = brax.envs.ant._SYSTEM_CONFIG):
@@ -73,19 +73,26 @@ class AntTagEnv(env.Env):
         self.target_idx = self.sys.body.index['Target']
         self.torso_idx = self.sys.body.index['$ Torso']
         self.ant_indices = jp.arange(self.torso_idx, self.target_idx)  # All parts of ant
-        self.ant_l = self.ant_indices.shape[0]
-        self.ant_mg = tuple(meshgrid(self.ant_indices, jp.arange(0,2)))
+        self.ant_l = self.ant_indices.shape[0]  # Number of parts that belong to ant
+        self.ant_mg = tuple(meshgrid(self.ant_indices, jp.arange(0, 2)))  # Indices that correspond to x,y positions of all parts of ant
 
     def reset(self, rng: jp.ndarray) -> env.State:
-        rng, rng1, rng2 = jp.random_split(rng, 3)
+        rng, rng1, rng2, rng3, rng4 = jp.random_split(rng, 5)
+        # Initial joint and velocity positions
         qpos = self.sys.default_angle() + jp.random_uniform(
             rng1, (self.sys.num_joint_dof,), -.1, .1)
         qvel = jp.random_uniform(rng2, (self.sys.num_joint_dof,), -.1, .1)
-        ant_pos = jp.random_uniform(rng1, (2,), -self.cage_xy, self.cage_xy)
+        # initial ant position
+        ant_pos = jp.random_uniform(rng3, (2,), -self.cage_xy, self.cage_xy)
+        # Set default qp with the sampled joints
         qp = self.sys.default_qp(joint_angle=qpos, joint_velocity=qvel)
-        pos = index_add(qp.pos, self.ant_mg, ant_pos[...,None])
-        rng, tgt = self._random_target(rng, ant_pos)
+        # Add ant xy to all ant part positions (otherwise they spring back hilariously)
+        pos = index_add(qp.pos, self.ant_mg, ant_pos[..., None])
+        # Sample random target position based on ant
+        _, tgt = self._random_target(rng4, ant_pos)
+        # Update ant position with this
         pos = jp.index_update(pos, self.target_idx, tgt)
+        # Actually update qpos
         qp = qp.replace(pos=pos)
         info = self.sys.info(qp)
         obs = self._get_obs(qp, info)
@@ -93,13 +100,12 @@ class AntTagEnv(env.Env):
         metrics = {
             'hits': zero,
         }
-        info = {'rng': rng}
+        info = {'rng': rng}  # Save rng
         return env.State(qp, obs, reward, done, metrics, info)
 
     def _random_target(self, rng: jp.ndarray, ant_xy: jp.ndarray) -> Tuple[jp.ndarray, jp.ndarray]:
         """Returns a target location at least min_spawn_location away from ant"""
-        rng, rng1 = jp.random_split(rng, 2)
-        xy = jp.random_uniform(rng1, (2,), -self.cage_xy, self.cage_xy)
+        xy = jp.random_uniform(rng, (2,), -self.cage_xy, self.cage_xy)
         minus_ant = lambda xy: xy - ant_xy
         def resample(rngxy: Tuple[jp.ndarray, jp.ndarray]) -> Tuple[jp.ndarray, jp.ndarray]:
             rng, xy = rngxy
@@ -109,10 +115,7 @@ class AntTagEnv(env.Env):
 
         _, xy = while_loop(lambda rngxy: jp.norm(minus_ant(rngxy[1])) <= self.min_spawn_distance,
                               resample,
-                              (rng1, xy))
-        # while jp.norm(xy - ant_xy) <= self.min_spawn_distance:
-        #     rng, rng1 = jp.random_split(rng, 2)
-        #     xy = jp.random_uniform(rng1, (2,), -self.cage_xy, self.cage_xy)
+                              (rng, xy))
         target_z = 0.5
         target = jp.array([*xy, target_z]).transpose()
         return rng, target

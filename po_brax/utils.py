@@ -3,6 +3,28 @@ import brax.jumpy as jp
 from brax.physics.config_pb2 import Body
 
 
+def add_box_wall_to_body(body: Body, from_xy: jp.ndarray, to_xy: jp.ndarray, half_height: float = 0.5, wall_width: float = 0.25) -> None:
+    """Add a box wall collider to a body
+
+    Args:
+        body: Body contained from a config_pb2 object
+        from_xy: xy coordinates of start of capsule (relative to body)
+        to_xy: xy coordinates of end of capsule (relative to body)
+        half_height: Half height of box
+
+    Returns:
+        Nothing
+    """
+    length = jp.norm(from_xy - to_xy)
+    assert (from_xy[0] == to_xy[0]) or (from_xy[1] == to_xy[1])
+    coll = body.colliders.add()  # Add collider (for position and rotation)
+    vertical = (from_xy[0] == to_xy[0])  # Vertical walls (y to y), otherwise horizontal (x to x)
+    if vertical: coll.rotation.x = 90
+    else: coll.rotation.y = 90
+    cap = coll.capsule  # Actual capsule object
+    cap.radius = radius; cap.length = length
+
+
 def add_capsule_wall_to_body(body: Body, from_xy: jp.ndarray, to_xy: jp.ndarray, radius: float = 0.5, include_radius: bool = False) -> None:
     """Add a capsule wall collider to a body
 
@@ -41,7 +63,7 @@ def draw_arena(cfg: brax.Config, cage_x: float, cage_y: float, capsule_radius: f
         cfg: brax Config object
         cage_x: Max x size
         cage_y: Max y size
-        capsule_radius: thickness of wall. >=0.5 recommended
+        capsule_radius: thickness of wall. >= 0.5 recommended
         arena_name: Name given to arena (used to include collide pairs later
     Returns:
         Nothing, in-place
