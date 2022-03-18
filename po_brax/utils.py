@@ -25,7 +25,7 @@ def add_box_wall_to_body(body: Body, from_xy: jp.ndarray, to_xy: jp.ndarray, hal
     coll.position.x, coll.position.y = midpoint
     coll.rotation.z = z_rotation  # W.r.t. unit x-vector
     box = coll.box  # Actual box object
-    box.halfsize.x, box.halfsize.y, box.halfsize.z = length, wall_width, half_height
+    box.halfsize.x, box.halfsize.y, box.halfsize.z = length / 2, wall_width, half_height
 
 
 def add_capsule_wall_to_body(body: Body, from_xy: jp.ndarray, to_xy: jp.ndarray, radius: float = 0.5, include_radius: bool = False) -> None:
