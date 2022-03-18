@@ -7,7 +7,7 @@ from .utils import draw_t_maze
 from google.protobuf import text_format
 
 
-def extend_ant_cfg(cfg: str = brax.envs.ant._SYSTEM_CONFIG, hhp: jp.ndarray = jp.array([[-6.25, 7.], [6.25, 7.], [0., 7.]]), hallway_width: float = 2) -> brax.Config:
+def extend_ant_cfg(cfg: str = brax.envs.ant._SYSTEM_CONFIG, hhp: jp.ndarray = jp.array([[-5.25, 7.], [5.25, 7.], [0., 7.]]), hallway_width: float = 2) -> brax.Config:
     cfg = text_format.Parse(cfg, brax.Config())  # Get ant config
     ant_body_names = [b.name for b in cfg.bodies if b.name != 'Ground']
     # Add priest
@@ -39,25 +39,20 @@ def extend_ant_cfg(cfg: str = brax.envs.ant._SYSTEM_CONFIG, hhp: jp.ndarray = jp
 class AntHeavenHellEnv(env.Env):
     def __init__(self, **kwargs):
         # Preliminaries
-        self.heaven_hell_xy = jp.array(kwargs.get('heaven_hell', [[-6.25, 7.], [6.25, 7.]]))
+        self.heaven_hell_xy = jp.array(kwargs.get('heaven_hell', [[-5.25, 7.], [5.25, 7.]]))
         self.priest_pos = jp.array(kwargs.get('priest_pos', [0., 7.]))  # Priest is at 0,6 xy
         self._hhp = jp.concatenate((jp.concatenate((self.heaven_hell_xy, self.priest_pos[None, ...]), axis=0), jp.ones((3, 1))), axis=1)
         self.visible_radius = kwargs.get('visible_radius', 2.)  # Where can I see priest
-        frameskip = kwargs.get('frame_skip', 6.)  # 0.3 seconds between acitons in Hai's, base dt is 0.05
-        # See https://github.com/google/brax/issues/161
         cfg = extend_ant_cfg(hhp=self._hhp, hallway_width=2.)
-        # cfg.dt *= frameskip
-        # cfg.substeps = int(cfg.substeps * frameskip)
         self.sys = brax.System(cfg)
-        # super().__init__(_SYSTEM_CONFIG)
         # Ant and target indexes
         self.target_idx = self.sys.body.index['Target']
         self.hell_idx = self.sys.body.index['Hell']
-        self.priest_idx = self.sys.body.index['Hell']
+        self.priest_idx = self.sys.body.index['Priest']
         self.torso_idx = self.sys.body.index['$ Torso']
-        self.ant_indices = jp.arange(self.torso_idx, self.target_idx)  # All parts of ant
+        self.ant_indices = jp.arange(self.torso_idx, self.priest_idx)  # All parts of ant
         self.ant_l = self.ant_indices.shape[0]
-        self.ant_mg = tuple(meshgrid(self.ant_indices, jp.arange(0,2)))
+        self.ant_mg = tuple(meshgrid(self.ant_indices, jp.arange(0, 2)))
         self._init_ant_pos = jp.array([[-0.5, 0.5], [0.5, 1.5]])  # Low and high xy for ant position
 
     def reset(self, rng: jp.ndarray) -> env.State:
