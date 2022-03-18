@@ -26,7 +26,6 @@ def extend_ant_cfg(cfg: str = brax.envs.ant._SYSTEM_CONFIG, hhp: jp.ndarray = jp
     sph = hell.colliders.add().sphere
     sph.radius = 0.5
     # Add walls
-    # Rotate x for x walls, y for y walls
     draw_t_maze(cfg, t_x=hhp[:,0].max() + hallway_width / 2, t_y=hhp[:,1].max() + hallway_width / 2, hallway_width=hallway_width)
     for b in ant_body_names:
         cfg.collide_include.add(first=b, second='Arena')
@@ -47,8 +46,8 @@ class AntHeavenHellEnv(env.Env):
         frameskip = kwargs.get('frame_skip', 6.)  # 0.3 seconds between acitons in Hai's, base dt is 0.05
         # See https://github.com/google/brax/issues/161
         cfg = extend_ant_cfg(hhp=self._hhp, hallway_width=2.)
-        cfg.dt *= frameskip
-        cfg.substeps = int(cfg.substeps * frameskip)
+        # cfg.dt *= frameskip
+        # cfg.substeps = int(cfg.substeps * frameskip)
         self.sys = brax.System(cfg)
         # super().__init__(_SYSTEM_CONFIG)
         # Ant and target indexes
@@ -62,15 +61,21 @@ class AntHeavenHellEnv(env.Env):
         self._init_ant_pos = jp.array([[-0.5, 0.5], [0.5, 1.5]])  # Low and high xy for ant position
 
     def reset(self, rng: jp.ndarray) -> env.State:
-        rng, rng1, rng2, rng3 = jp.random_split(rng, 4)
+        rng, rng1, rng2, rng3, rng4 = jp.random_split(rng, 5)
         qpos = self.sys.default_angle() + jp.random_uniform(
             rng1, (self.sys.num_joint_dof,), -.1, .1)
         qvel = jp.random_uniform(rng2, (self.sys.num_joint_dof,), -.1, .1)
-        ant_pos = jp.random_uniform(rng1, (2,), *self._init_ant_pos)  # Sample ant torso position
+        # initial ant position
+        ant_pos = jp.random_uniform(rng3, (2,), *self._init_ant_pos)  # Sample ant torso position
+        # Set default qp with the sampled joints
         qp = self.sys.default_qp(joint_angle=qpos, joint_velocity=qvel)
-        pos = index_add(qp.pos, self.ant_mg, ant_pos[...,None])
+        # Add ant xy to all ant part positions (otherwise they spring back hilariously)
+        pos = index_add(qp.pos, self.ant_mg, ant_pos[..., None])
+        # Pick heaven and hell positions
         target_pos, hell_pos = choice(rng3, self._hhp[:2], (2,), False)
+        # Update heaven and hell positions
         pos = jp.index_update(pos, jp.stack([self.target_idx, self.hell_idx]), jp.stack([target_pos, hell_pos]))
+        # Actually update qpos
         qp = qp.replace(pos=pos)
         info = self.sys.info(qp)
         obs = self._get_obs(qp, info, jp.float32(0))
@@ -86,13 +91,13 @@ class AntHeavenHellEnv(env.Env):
     def step(self, state: env.State, action: jp.ndarray) -> env.State:
         """Run one timestep of the environment's dynamics."""
         qp, info = self.sys.step(state.qp, action)
-        # Done if we go to heaven or hell
         heaven_hell_priest = jp.stack([qp.pos[self.target_idx], qp.pos[self.hell_idx], qp.pos[self.priest_idx]])
-        in_range = (jp.norm(heaven_hell_priest[:, :2] - qp.pos[self.torso_idx, :2], axis=-1) <= self.visible_radius)  # In range of pos1, pos2, priest
+        # Are we in range of heaven/hell (done+reward) or priest (extra observation)
+        in_range = (jp.norm(heaven_hell_priest[:, :2] - qp.pos[self.torso_idx, :2], axis=-1) <= self.visible_radius)
         priest_in_range = in_range[-1]
-        reward = jp.where(in_range[0], jp.float32(1), jp.float32(0)) # +1 for heaven
+        reward = jp.where(in_range[0], jp.float32(1), jp.float32(0))  # +1 for heaven
         reward = jp.where(in_range[1], jp.float32(-1), reward)  # -1 for hell
-        done = jp.where(reward != 0, jp.float32(1), jp.float32(0))  # Done at either position
+        done = jp.where(reward != 0, jp.float32(1), jp.float32(0))  # Done if any reward
         # Get observation
         obs = self._get_obs(qp, info, priest_in_range)
         state.metrics.update(hits=done)
@@ -102,6 +107,7 @@ class AntHeavenHellEnv(env.Env):
         """Observe ant body position and velocities."""
         # some pre-processing to pull joint angles and velocities
         (joint_angle,), (joint_vel,) = self.sys.joints[0].angle_vel(qp)
+        # 0 obs if not in range, else -1/1 for heaven in negative/positive x direction
         tgt_x = atleast_1d(qp.pos[self.target_idx][0])
         heaven_direction = jp.where(priest_in_range > 0, jp.sign(tgt_x), jp.zeros_like(tgt_x))
 
