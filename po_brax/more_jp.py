@@ -3,6 +3,7 @@ from typing import Sequence, Union
 import jax
 from brax.jumpy import _in_jit, X, Optional, Tuple, Callable, onp, Any, _which_np, jnp, ndarray
 
+
 def while_loop(cond_fun: Callable[[X], Any],
                body_fun: Callable[[X], X],
                init_val: X) -> X:
@@ -30,13 +31,15 @@ def while_loop(cond_fun: Callable[[X], Any],
             val = body_fun(val)
         return val
 
+
 def index_add(x: ndarray, idx: ndarray, y: ndarray) -> ndarray:
-  """Pure equivalent of x[idx] += y."""
-  if _which_np(x) is jnp:
-    return x.at[idx].add(y)
-  x = onp.copy(x)
-  x[idx] += y
-  return x
+    """Pure equivalent of x[idx] += y."""
+    if _which_np(x) is jnp:
+        return x.at[idx].add(y)
+    x = onp.copy(x)
+    x[idx] += y
+    return x
+
 
 def meshgrid(*xi, copy: bool = True, sparse: bool = False, indexing: str = 'xy') -> ndarray:
     if _which_np(xi[0]) is jnp:
@@ -53,13 +56,14 @@ def randint(rng: ndarray, shape: Tuple[int, ...] = (),
         return onp.random.default_rng(rng).integers(low=low, high=high, size=shape)
 
 
-def choice(rng: ndarray, a: Union[int, Any], shape: Tuple[int,...] = (),
+def choice(rng: ndarray, a: Union[int, Any], shape: Tuple[int, ...] = (),
            replace: bool = True, p: Optional[Any] = None, axis: int = 0) -> ndarray:
     """Pick from  in [low, high) with given shape."""
     if _which_np(rng) is jnp:
         return jax.random.choice(rng, a, shape=shape, replace=replace, p=p, axis=axis)
     else:
         return onp.random.default_rng(rng).choice(a, size=shape, replace=replace, p=p, axis=axis)
+
 
 def atleast_1d(*arys) -> ndarray:
     return _which_np(*arys).atleast_1d(*arys)

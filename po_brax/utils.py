@@ -7,7 +7,7 @@ def add_box_wall_to_body(body: Body, from_xy: jp.ndarray, to_xy: jp.ndarray, hal
     """Add a box wall collider to a body
 
     Args:
-        body: Body contained from a config_pb2 object
+        body: Body contained from a config_pb2 object. Assume body handles z-axis
         from_xy: xy coordinates of start of capsule (relative to body)
         to_xy: xy coordinates of end of capsule (relative to body)
         half_height: Half height of box
@@ -15,14 +15,17 @@ def add_box_wall_to_body(body: Body, from_xy: jp.ndarray, to_xy: jp.ndarray, hal
     Returns:
         Nothing
     """
-    length = jp.norm(from_xy - to_xy)
-    assert (from_xy[0] == to_xy[0]) or (from_xy[1] == to_xy[1])
+    unit_vector = jp.zeros_like(from_xy); unit_vector = jp.index_update(unit_vector, jp.arange(0, 1), jp.ones(1))  # x unit vector
+    vector = to_xy - from_xy  # Used for angle and length
+    length = jp.norm(vector)
+    midpoint = (from_xy + to_xy) / 2  # xy midpoint (position)
+    # Dot product for vector rotation (a dot b = |a| * |b| * cos theta), convert to degrees
+    z_rotation = (jp.arccos(jp.dot(unit_vector, vector) / length) * 180 / jp.pi)
     coll = body.colliders.add()  # Add collider (for position and rotation)
-    vertical = (from_xy[0] == to_xy[0])  # Vertical walls (y to y), otherwise horizontal (x to x)
-    if vertical: coll.rotation.x = 90
-    else: coll.rotation.y = 90
-    cap = coll.capsule  # Actual capsule object
-    cap.radius = radius; cap.length = length
+    coll.position.x, coll.position.y = midpoint
+    coll.rotation.z = z_rotation  # W.r.t. unit x-vector
+    box = coll.box  # Actual box object
+    box.halfsize.x, box.halfsize.y, box.halfsize.z = length, wall_width, half_height
 
 
 def add_capsule_wall_to_body(body: Body, from_xy: jp.ndarray, to_xy: jp.ndarray, radius: float = 0.5, include_radius: bool = False) -> None:
@@ -54,7 +57,7 @@ def add_capsule_wall_to_body(body: Body, from_xy: jp.ndarray, to_xy: jp.ndarray,
     cap.radius = radius; cap.length = length
 
 
-def draw_arena(cfg: brax.Config, cage_x: float, cage_y: float, capsule_radius: float = 0.5, arena_name: str = "Arena") -> None:
+def draw_arena(cfg: brax.Config, cage_x: float, cage_y: float, capsule_radius_or_box_half_height: float = 0.5, arena_name: str = "Arena", use_boxes: bool = True) -> None:
     """Add frozen 4-sided arena using capsule walls to enforce bounds of play
 
     Arranged such that cage_x and cage_y are the bounds of the inner area (i.e., at radius edge of capsule facing inward)
@@ -63,19 +66,22 @@ def draw_arena(cfg: brax.Config, cage_x: float, cage_y: float, capsule_radius: f
         cfg: brax Config object
         cage_x: Max x size
         cage_y: Max y size
-        capsule_radius: thickness of wall. >= 0.5 recommended
-        arena_name: Name given to arena (used to include collide pairs later
+        capsule_radius_or_box_half_height: thickness of wall (capsule) or half height of wall (box, is 2x thickness). >= 0.5 recommended
+        arena_name: Name given to arena (used to include collide pairs later)
+        use_boxes:
     Returns:
         Nothing, in-place
     """
-    x, y, r = cage_x, cage_y, capsule_radius
+    x, y, r = cage_x, cage_y, capsule_radius_or_box_half_height
     arena = cfg.bodies.add(name=arena_name, mass=1.)  # 1 frozen body, many colliders
     arena.frozen.all = True
     aqp = cfg.defaults.add().qps.add(name=arena_name)  # Default height such that walls just touch the ground
-    aqp.pos.z = capsule_radius
+    aqp.pos.z = capsule_radius_or_box_half_height
+    if use_boxes: r /= 2  # Wall halfsize, expand coordinates so that we *enclose* this space
     xy_positions = jp.array([[x + r, y + r], [x + r, -y - r], [-x - r, -y - r], [-x - r, y + r]])
     for i in range(len(xy_positions)):
-        add_capsule_wall_to_body(arena, xy_positions[i], xy_positions[int((i+1) % 4)], r, True)
+        add_capsule_wall_to_body(arena, xy_positions[i], xy_positions[int((i+1) % 4)], r, True) if not use_boxes else add_box_wall_to_body(arena, xy_positions[i], xy_positions[int((i+1) % 4)], capsule_radius_or_box_half_height, r)
+
 
 
 def draw_t_maze(cfg: brax.Config, t_x: float, t_y: float, hallway_width: float = 2., capsule_radius: float = 0.5, arena_name: str = "Arena") -> None:

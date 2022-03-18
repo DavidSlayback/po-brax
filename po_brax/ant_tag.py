@@ -5,38 +5,9 @@ import jax
 from brax import jumpy as jp
 from brax.envs import env
 import jax.numpy as jnp
-from more_jp import while_loop, meshgrid, index_add
-from utils import draw_arena
+from .more_jp import while_loop, meshgrid, index_add
+from .utils import draw_arena
 from google.protobuf import text_format
-
-# def add_walls(cfg: str = brax.envs.ant._SYSTEM_CONFIG):
-#     cfg = text_format.Parse(cfg, brax.Config())
-#     ant_body_names = [b.name for b in cfg.bodies if b.name != 'Ground']
-#     # Add target
-#     target = cfg.bodies.add(name='Target', mass=1.)
-#     target.frozen.all = True
-#     sph = target.colliders.add().sphere
-#     sph.radius = 0.5
-#     cage_x = cage_y = 6.
-#     wall_half_width = 0.25
-#     cage_z = cage_half_height = 0.5
-#     # Add walls (boxes, collision may not work)
-#     arena = cfg.bodies.add(name='Arena', mass=1000.)
-#     # arena.frozen.all = True
-#     aqp = cfg.defaults.add().qps.add(name='Arena')
-#     aqp.pos.z = 1.
-#     for i in range(4):  # NESW
-#         is_y = bool(i % 2)  # Odds have y position, evens are x
-#         position_sign = 1. if (i in (0, 1)) else -1.  # N E are positive, S W are negative
-#         box = arena.colliders.add(position={'x': 0 if is_y else cage_x * position_sign,
-#                                             'y': 0 if (not is_y) else cage_y * position_sign,
-#                                             'z': cage_z}).box
-#         box.halfsize.x = wall_half_width if (not is_y) else cage_y
-#         box.halfsize.y = wall_half_width if is_y else cage_x
-#         box.halfsize.z = cage_half_height
-#     for b in ant_body_names:
-#         cfg.collide_include.add(first=b, second='Arena')
-#     return cfg
 
 
 def extend_ant_cfg(cfg: str = brax.envs.ant._SYSTEM_CONFIG, cage_max_xy: jp.ndarray = jp.array([4.5, 4.5]), offset: float = 1) -> brax.Config:
@@ -139,29 +110,30 @@ class AntTagEnv(env.Env):
         return state.replace(qp=qp, obs=obs, reward=reward, done=done)
 
     def _step_target(self, rng: jp.ndarray, ant_xy: jp.ndarray, tgt_xy: jnp.ndarray) -> Tuple[jp.ndarray, jp.ndarray]:
-        """Move target in 1/4 directions based on ant"""
+        """Move target in 1 of 4 directions based on ant"""
         rng, rng1 = jp.random_split(rng, 2)
         choice = jax.random.randint(rng1, (), 0, 4)
+        # Unit vector of target -> ant
         target2ant_vec = ant_xy - tgt_xy
         target2ant_vec = target2ant_vec / jp.norm(target2ant_vec)
-        # jax.lax.switch(choice, (), )
 
-        per_vec_1 = jp.array([target2ant_vec[1], -target2ant_vec[0]])
-        per_vec_2 = jp.array([-target2ant_vec[1], target2ant_vec[0]])
-        opposite_vec = -target2ant_vec
+        # Orthogonal vectors
+        per_vec_1 = jp.multiply(target2ant_vec[::-1], jp.array([1., -1.]))
+        per_vec_2 = jp.multiply(target2ant_vec[::-1], jp.array([-1., 1.]))
+        # per_vec_2 = jp.array([-target2ant_vec[1], target2ant_vec[0]])
+        opposite_vec = -target2ant_vec  # run away!
 
         vec_list = jp.stack([per_vec_1, per_vec_2, opposite_vec, jp.zeros(2)], 0)
-        chosen_vec = vec_list[choice] * self.target_step + tgt_xy
-        chosen_vec = jp.where((jp.abs(chosen_vec) > self.cage_xy).any(), tgt_xy, chosen_vec)
-        return rng, jp.concatenate((chosen_vec, jp.ones(1)), 0)
+        new_tgt_xy = vec_list[choice] * self.target_step + tgt_xy
+        new_tgt_xy = jp.where((jp.abs(new_tgt_xy) > self.cage_xy).any(), tgt_xy, new_tgt_xy)
+        return rng, jp.concatenate((new_tgt_xy, jp.ones(1)), 0)
 
     def _get_obs(self, qp: brax.QP, info: brax.Info) -> jp.ndarray:
         """Observe ant body position and velocities."""
         # Check if we can observe target. Otherwise just 0s
         target_xy = qp.pos[self.target_idx, :2]  # xy of target
-        ant_xy = qp.pos[self.torso_idx, :2] # xy of
+        ant_xy = qp.pos[self.torso_idx, :2]  # xy of ant
         target_xy = jp.where(jp.norm(target_xy - ant_xy) <= self.visible_radius, target_xy, jp.zeros(2))
-        # if jp.norm(target_xy - ant_xy) <= self.visible_radius: target_xy[:] = jp.zeros(2)
 
         # some pre-processing to pull joint angles and velocities
         (joint_angle,), (joint_vel,) = self.sys.joints[0].angle_vel(qp)
