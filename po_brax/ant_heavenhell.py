@@ -1,9 +1,10 @@
 """Trains an ant to go to heaven by following the advice of a priest"""
 import brax
+import jax
 from brax import jumpy as jp
 from brax.envs import env
-from .more_jp import meshgrid, index_add, choice, atleast_1d
-from .utils import draw_t_maze
+from more_jp import meshgrid, index_add, choice, atleast_1d, cond
+from utils import draw_t_maze
 from google.protobuf import text_format
 
 
@@ -134,22 +135,42 @@ class AntHeavenHellEnv(env.Env):
         return jp.concatenate(qpos + qvel + cfrc)
 
 
+class AntHeavenHellEnv_Autoreset(AntHeavenHellEnv):
+    def step(self, state: env.State, action: jp.ndarray) -> env.State:
+        """Run one timestep of the environment's dynamics."""
+        # if state.done: state = self.reset(state.info['rng'])
+        state = jax.lax.cond(state.done.any(), state.info['rng'], self.reset, state.info['rng'], lambda rng: state)
+        qp, info = self.sys.step(state.qp, action)
+        heaven_hell_priest = jp.stack([qp.pos[self.target_idx], qp.pos[self.hell_idx], qp.pos[self.priest_idx]])
+        # Are we in range of heaven/hell (done+reward) or priest (extra observation)
+        in_range = (jp.norm(heaven_hell_priest[:, :2] - qp.pos[self.torso_idx, :2], axis=-1) <= self.visible_radius)
+        priest_in_range = in_range[-1]
+        reward = jp.where(in_range[0], jp.float32(1), jp.float32(0))  # +1 for heaven
+        reward = jp.where(in_range[1], jp.float32(-1), reward)  # -1 for hell
+        done = jp.where(reward != 0, jp.float32(1), jp.float32(0))  # Done if any reward
+        # Get observation
+        obs = self._get_obs(qp, info, priest_in_range)
+        state.metrics.update(hits=done)
+        return state.replace(qp=qp, obs=obs, reward=reward, done=done)
+
+
 if __name__ == "__main__":
     # test = extend_ant_cfg()
-    e = AntHeavenHellEnv()
+    # e = AntHeavenHellEnv()
     from brax.envs.wrappers import EpisodeWrapper, VectorWrapper, AutoResetWrapper, VectorGymWrapper, GymWrapper
+    e = VectorWrapper(AntHeavenHellEnv_Autoreset(), 16)
     # e = AutoResetWrapper(VectorWrapper(EpisodeWrapper(e, 1000, 1), 16))
-    e = AutoResetWrapper(EpisodeWrapper(e, 1000, 1))
-    egym = GymWrapper(e, seed=0, backend='cpu')
+    # e = AutoResetWrapper(EpisodeWrapper(e, 1000, 1))
+    # egym = GymWrapper(e, seed=0, backend='cpu')
     # egym = VectorGymWrapper(e, seed=0, backend='cpu')
     # egym = gym.wrappers.record_video.RecordVideo(egym, 'videos/', video_length=2)
-    ogym = egym.reset()
-    # o = e.reset(jp.random_prngkey(0))
-    # o2 = jax.jit(e.step)(o, jp.zeros((16, 8)))
-    # for t in range(200):
-    #     o2 = e.step(o2, jp.zeros((16, 8)))
+    # ogym = egym.reset()
+    o = jax.jit(e.reset)(jp.random_prngkey(0))
+    o2 = jax.jit(e.step)(o, jp.zeros((16, 8)))
+    for t in range(200):
+        o2 = e.step(o2, jp.zeros((16, 8)))
     # for t in range(200):
     #     ogym2 = egym.step(jp.zeros((16,8)))
-    for t in range(200):
-        ogym2 = egym.step(egym.action_space.sample())
+    # for t in range(200):
+    #     ogym2 = egym.step(egym.action_space.sample())
     print(3)

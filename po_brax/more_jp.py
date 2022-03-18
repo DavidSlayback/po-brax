@@ -67,3 +67,12 @@ def choice(rng: ndarray, a: Union[int, Any], shape: Tuple[int, ...] = (),
 
 def atleast_1d(*arys) -> ndarray:
     return _which_np(*arys).atleast_1d(*arys)
+
+
+def cond(pred, true_fun: Callable, false_fun: Callable, *operands: Any):
+    if _in_jit():
+        return jax.lax.cond(pred, true_fun, false_fun, *operands)
+    else:
+        if pred:return true_fun(operands)
+        else: return false_fun(operands)
+
