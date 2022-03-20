@@ -57,6 +57,18 @@ class AntHeavenHellEnv(env.Env):
         self._init_ant_pos = jp.array([[-0.5, 0.5], [0.5, 1.5]])  # Low and high xy for ant position
 
     def reset(self, rng: jp.ndarray) -> env.State:
+        rng, qp = self.sample_init_qp(rng)
+        info = self.sys.info(qp)
+        obs = self._get_obs(qp, info, jp.float32(0))
+        reward, done, zero = jp.zeros(3)
+        metrics = {
+            'heavens': zero,
+            'hells': zero
+        }
+        info = {'rng': rng}
+        return env.State(qp, obs, reward, done, metrics, info)
+
+    def sample_init_qp(self, rng: jp.ndarray):
         rng, rng1, rng2, rng3, rng4 = jp.random_split(rng, 5)
         qpos = self.sys.default_angle() + jp.random_uniform(
             rng1, (self.sys.num_joint_dof,), -.1, .1)
@@ -72,16 +84,7 @@ class AntHeavenHellEnv(env.Env):
         # Update heaven and hell positions
         pos = jp.index_update(pos, jp.stack([self.target_idx, self.hell_idx]), jp.stack([target_pos, hell_pos]))
         # Actually update qpos
-        qp = qp.replace(pos=pos)
-        info = self.sys.info(qp)
-        obs = self._get_obs(qp, info, jp.float32(0))
-        reward, done, zero = jp.zeros(3)
-        metrics = {
-            'heavens': zero,
-            'hells': zero
-        }
-        info = {'rng': rng}
-        return env.State(qp, obs, reward, done, metrics, info)
+        return rng, qp.replace(pos=pos)
 
 
     def step(self, state: env.State, action: jp.ndarray) -> env.State:
@@ -136,41 +139,68 @@ class AntHeavenHellEnv(env.Env):
 
 
 class AntHeavenHellEnv_Autoreset(AntHeavenHellEnv):
+    def __init__(self, episode_length: int, **kwargs):
+        super().__init__(**kwargs)
+        self.episode_length = episode_length
+
+    def reset(self, rng: jp.ndarray) -> env.State:
+        state = super().reset(rng)
+        state.info['steps'] = jp.zeros(())
+        state.info['truncation'] = jp.zeros(())
+        return state
+
     def step(self, state: env.State, action: jp.ndarray) -> env.State:
-        """Run one timestep of the environment's dynamics."""
-        # if state.done: state = self.reset(state.info['rng'])
-        state = jax.lax.cond(state.done.any(), state.info['rng'], self.reset, state.info['rng'], lambda rng: state)
+        """Run one timestep of the environment's dynamics. Reset state if done"""
         qp, info = self.sys.step(state.qp, action)
         heaven_hell_priest = jp.stack([qp.pos[self.target_idx], qp.pos[self.hell_idx], qp.pos[self.priest_idx]])
+        state.info['steps'] = state.info['steps'] + 1
         # Are we in range of heaven/hell (done+reward) or priest (extra observation)
         in_range = (jp.norm(heaven_hell_priest[:, :2] - qp.pos[self.torso_idx, :2], axis=-1) <= self.visible_radius)
-        priest_in_range = in_range[-1]
+        # priest_in_range = in_range[-1]
         reward = jp.where(in_range[0], jp.float32(1), jp.float32(0))  # +1 for heaven
         reward = jp.where(in_range[1], jp.float32(-1), reward)  # -1 for hell
         done = jp.where(reward != 0, jp.float32(1), jp.float32(0))  # Done if any reward
+        done = jp.where(state.info['steps'] >= self.episode_length, jp.ones_like(done), done)
+        state.info['rng'], qp = cond(done > 0, self.sample_init_qp, lambda rng: (rng, qp), state.info['rng'])
+        state.info['truncation'] = jp.where(state.info['steps'] >= self.episode_length, 1 - done, jp.zeros_like(done))
+        priest_in_range = jp.norm(heaven_hell_priest[-1,:2] - qp.pos[self.torso_idx, :2]) <= self.visible_radius
+        # qp = self.sample_init_qp(state.info['rng'])
         # Get observation
         obs = self._get_obs(qp, info, priest_in_range)
-        state.metrics.update(hits=done)
+        state.metrics.update(heavens=(reward >= 1))
         return state.replace(qp=qp, obs=obs, reward=reward, done=done)
 
 
 if __name__ == "__main__":
+    import numpy as np
     # test = extend_ant_cfg()
-    # e = AntHeavenHellEnv()
     from brax.envs.wrappers import EpisodeWrapper, VectorWrapper, AutoResetWrapper, VectorGymWrapper, GymWrapper
-    e = VectorWrapper(AntHeavenHellEnv_Autoreset(), 16)
-    # e = AutoResetWrapper(VectorWrapper(EpisodeWrapper(e, 1000, 1), 16))
+    # e = VectorWrapper(AntHeavenHellEnv_Autoreset(1000), 16)
+    e = AntHeavenHellEnv()
+    e = AutoResetWrapper(VectorWrapper(EpisodeWrapper(e, 1000, 1), 16))
     # e = AutoResetWrapper(EpisodeWrapper(e, 1000, 1))
     # egym = GymWrapper(e, seed=0, backend='cpu')
-    # egym = VectorGymWrapper(e, seed=0, backend='cpu')
+    egym = VectorGymWrapper(e, seed=0, backend='gpu')
     # egym = gym.wrappers.record_video.RecordVideo(egym, 'videos/', video_length=2)
-    # ogym = egym.reset()
-    o = jax.jit(e.reset)(jp.random_prngkey(0))
-    o2 = jax.jit(e.step)(o, jp.zeros((16, 8)))
-    for t in range(200):
-        o2 = e.step(o2, jp.zeros((16, 8)))
-    # for t in range(200):
-    #     ogym2 = egym.step(jp.zeros((16,8)))
-    # for t in range(200):
-    #     ogym2 = egym.step(egym.action_space.sample())
-    print(3)
+    ogym = egym.reset()
+    # rs, ss =
+    # o = jax.jit(e.reset, backend='cpu')(jp.random_prngkey(0))
+    # o2 = jax.jit(e.step, backend='cpu')(o, jp.zeros((16, 8)))
+    import time
+    times = []
+    t0 = time.time()
+    for t in range(1000):
+        ogym2 = egym.step(egym.action_space.sample())
+        times.append(time.time() - t0)
+        t0 = time.time()
+    print(f'Fixed: {np.mean(times[5:])}')
+    e = VectorWrapper(AntHeavenHellEnv_Autoreset(1000), 16)
+    egym = VectorGymWrapper(e, seed=0, backend='gpu')
+    ogym = egym.reset()
+    times = []
+    t0 = time.time()
+    for t in range(1000):
+        ogym2 = egym.step(egym.action_space.sample())
+        times.append(time.time() - t0)
+        t0 = time.time()
+    print(f'Random: {np.mean(times[5:])}')
