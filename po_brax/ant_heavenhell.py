@@ -174,27 +174,39 @@ class AntHeavenHellEnv_Autoreset(AntHeavenHellEnv):
 if __name__ == "__main__":
     import numpy as np
     # test = extend_ant_cfg()
-    from brax.envs.wrappers import EpisodeWrapper, VectorWrapper, AutoResetWrapper, VectorGymWrapper, GymWrapper
+    from brax.envs.wrappers import EpisodeWrapper, VectorWrapper, AutoResetWrapper, VectorGymWrapper, GymWrapper, VmapWrapper
     # e = VectorWrapper(AntHeavenHellEnv_Autoreset(1000), 16)
-    e = AntHeavenHellEnv()
-    e = AutoResetWrapper(VectorWrapper(EpisodeWrapper(e, 1000, 1), 16))
-    # e = AutoResetWrapper(EpisodeWrapper(e, 1000, 1))
-    # egym = GymWrapper(e, seed=0, backend='cpu')
-    egym = VectorGymWrapper(e, seed=0, backend='gpu')
-    # egym = gym.wrappers.record_video.RecordVideo(egym, 'videos/', video_length=2)
-    ogym = egym.reset()
-    # rs, ss =
-    # o = jax.jit(e.reset, backend='cpu')(jp.random_prngkey(0))
-    # o2 = jax.jit(e.step, backend='cpu')(o, jp.zeros((16, 8)))
+    # e = AntHeavenHellEnv()
+    # e = AutoResetWrapper(VectorWrapper(EpisodeWrapper(e, 1000, 1), 16))
+    # # e = AutoResetWrapper(EpisodeWrapper(e, 1000, 1))
+    # # egym = GymWrapper(e, seed=0, backend='cpu')
+    # egym = VectorGymWrapper(e, seed=0, backend='gpu')
+    # # egym = gym.wrappers.record_video.RecordVideo(egym, 'videos/', video_length=2)
+    # ogym = egym.reset()
+    # # rs, ss =
+    # # o = jax.jit(e.reset, backend='cpu')(jp.random_prngkey(0))
+    # # o2 = jax.jit(e.step, backend='cpu')(o, jp.zeros((16, 8)))
     import time
-    times = []
-    t0 = time.time()
-    for t in range(1000):
-        ogym2 = egym.step(egym.action_space.sample())
-        times.append(time.time() - t0)
-        t0 = time.time()
-    print(f'Fixed: {np.mean(times[5:])}')
-    e = VectorWrapper(AntHeavenHellEnv_Autoreset(1000), 16)
+    # times = []
+    # t0 = time.time()
+    # for t in range(1000):
+    #     ogym2 = egym.step(egym.action_space.sample())
+    #     times.append(time.time() - t0)
+    #     t0 = time.time()
+    # print(f'Fixed: {np.mean(times[5:])}')
+    # e = VectorWrapper(AntHeavenHellEnv_Autoreset(1000), 16)
+    # egym = VectorGymWrapper(e, seed=0, backend='gpu')
+    # ogym = egym.reset()
+    # times = []
+    # t0 = time.time()
+    # for t in range(1000):
+    #     ogym2 = egym.step(egym.action_space.sample())
+    #     times.append(time.time() - t0)
+    #     t0 = time.time()
+    # print(f'Random: {np.mean(times[5:])}')
+    from wrappers import RandomizedAutoResetWrapper
+    e = AntHeavenHellEnv()
+    e = RandomizedAutoResetWrapper(VectorWrapper(EpisodeWrapper(e, 1000, 1), 16))
     egym = VectorGymWrapper(e, seed=0, backend='gpu')
     ogym = egym.reset()
     times = []
@@ -203,4 +215,5 @@ if __name__ == "__main__":
         ogym2 = egym.step(egym.action_space.sample())
         times.append(time.time() - t0)
         t0 = time.time()
-    print(f'Random: {np.mean(times[5:])}')
+    print(f'Maybe reset: {np.mean(times[5:])}')
+
