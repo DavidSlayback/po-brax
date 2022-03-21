@@ -149,13 +149,16 @@ class AntGatherEnv(env.Env):
         n_apples: Number of apples in environment (+1 reward each)
         n_bombs: Number of bombs in environment  (-1 reward each)
         cage_xy: Max x and y values of arena (box from (-x,-y) to (x,y))
-        robot_object_spacing: Minimum spawn distance of objects
+        robot_object_spacing: Minimum spawn distance of objects from ant initial position
         catch_range: Distance at which robot "catches" apple or bomb
-        n_bins: Max number of observable objects
+        n_bins: Resolution of ant sensor. If multiple objects are in same bin span, only closest is seen
         sensor_range: Range of ant sensors
         sensor_span: Arc (in degrees) of ant sensors
         dying_cost: Cost for death (undoable locomotion error)
 
+    Apples and bombs spawn at any integer grid location within cage_xy, except those too close to origin
+    Ant gets its standard observations, plus:
+      n_bins apple readings and n_bins bomb readings
     """
     def __init__(self,
                  n_apples: int = 8,
