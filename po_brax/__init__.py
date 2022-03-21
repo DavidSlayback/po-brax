@@ -18,7 +18,7 @@ from brax.envs import reacher
 from brax.envs import reacherangle
 from brax.envs import ur5e
 from brax.envs import walker2d
-from brax.envs import wrappers
+from brax.envs import wrappers as bwrappers
 from .ant_tag import AntTagEnv
 from .ant_heavenhell import AntHeavenHellEnv
 from brax.envs.env import Env, State, Wrapper
@@ -54,11 +54,11 @@ def create(env_name: str,
   """Creates an Env with a specified brax system."""
   env = _envs[env_name](**kwargs)
   if episode_length is not None:
-    env = wrappers.EpisodeWrapper(env, episode_length, action_repeat)
+    env = bwrappers.EpisodeWrapper(env, episode_length, action_repeat)
   if batch_size:
-    env = wrappers.VectorWrapper(env, batch_size)
+    env = bwrappers.VectorWrapper(env, batch_size)
   if auto_reset:
-    env = wrappers.AutoResetWrapper(env)
+    env = bwrappers.AutoResetWrapper(env)
 
   return env  # type: ignore
 
