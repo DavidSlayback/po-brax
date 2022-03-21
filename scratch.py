@@ -9,19 +9,19 @@ import torch.nn as nn
 import torch.nn.functional as F
 import po_brax as envs
 from brax.envs.wrappers import VmapWrapper
-from po_brax.wrappers import RandomizedAutoResetWrapper, ActionRepeatWrapper
+from po_brax.wrappers import RandomizedAutoResetWrapperNaive, ActionRepeatWrapper, AutoResetWrapper, RandomizedAutoResetWrapperOnTerminal
 import jax
 
 ENV_NAME = 'ant_heavenhell'
 B = 16
-T = 200
+T = 1000
 if __name__ == "__main__":
     key = jax.random.PRNGKey(0)
     # e = envs.ant_heavenhell.AntHeavenHellEnv()
     # o = e.reset(key)
     multi_key = jp.random_split(key, B)
     e = VmapWrapper(envs.ant_heavenhell.AntHeavenHellEnv())
-    e = RandomizedAutoResetWrapper(e)
+    e = RandomizedAutoResetWrapperNaive(e)
     reset = jax.jit(e.reset)
     step = jax.jit(e.step)
     # o = e.reset(multi_key)

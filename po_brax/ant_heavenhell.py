@@ -204,9 +204,9 @@ if __name__ == "__main__":
     #     times.append(time.time() - t0)
     #     t0 = time.time()
     # print(f'Random: {np.mean(times[5:])}')
-    from wrappers import RandomizedAutoResetWrapper
+    from wrappers import RandomizedAutoResetWrapperNaive
     e = AntHeavenHellEnv()
-    e = RandomizedAutoResetWrapper(VectorWrapper(EpisodeWrapper(e, 1000, 1), 16))
+    e = RandomizedAutoResetWrapperNaive(VectorWrapper(EpisodeWrapper(e, 1000, 1), 16))
     egym = VectorGymWrapper(e, seed=0, backend='gpu')
     ogym = egym.reset()
     times = []
