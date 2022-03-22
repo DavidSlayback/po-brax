@@ -11,122 +11,8 @@ from brax.envs import env
 import jax.numpy as jnp
 from .more_jp import meshgrid, choice
 from .utils import draw_arena
+from .maze_utils import construct_maze
 from google.protobuf import text_format
-
-"""
-ORI_IDX = 6 for ant
-
-    def reset(self, also_wrapped=True):
-        self.objects = []
-        existing = set()
-        while len(self.objects) < self.n_apples:
-            x = np.random.randint(-self.activity_range / 2,
-                                  self.activity_range / 2) * 2
-            y = np.random.randint(-self.activity_range / 2,
-                                  self.activity_range / 2) * 2
-            # regenerate, since it is too close to the robot's initial position
-            if x ** 2 + y ** 2 < self.robot_object_spacing ** 2:
-                continue
-            if (x, y) in existing:
-                continue
-            typ = APPLE
-            self.objects.append((x, y, typ))
-            existing.add((x, y))
-        while len(self.objects) < self.n_apples + self.n_bombs:
-            x = np.random.randint(-self.activity_range / 2,
-                                  self.activity_range / 2) * 2
-            y = np.random.randint(-self.activity_range / 2,
-                                  self.activity_range / 2) * 2
-            # regenerate, since it is too close to the robot's initial position
-            if x ** 2 + y ** 2 < self.robot_object_spacing ** 2:
-                continue
-            if (x, y) in existing:
-                continue
-            typ = BOMB
-            self.objects.append((x, y, typ))
-            existing.add((x, y))
-
-        if also_wrapped:
-            self.wrapped_env.reset()
-        return self.get_current_obs()
-        
-    def step(self, action):
-        _, inner_rew, done, info = self.wrapped_env.step(action)
-        info['inner_rew'] = inner_rew
-        info['outer_rew'] = 0
-        if done:
-            return Step(self.get_current_obs(), self.dying_cost, done, **info)  # give a -10 rew if the robot dies
-        com = self.wrapped_env.get_body_com("torso")
-        x, y = com[:2]
-        reward = self.coef_inner_rew * inner_rew
-        new_objs = []
-        for obj in self.objects:
-            ox, oy, typ = obj
-            # object within zone!
-            if (ox - x) ** 2 + (oy - y) ** 2 < self.catch_range ** 2:
-                if typ == APPLE:
-                    reward = reward + 1
-                    info['outer_rew'] = 1
-                else:
-                    reward = reward - 1
-                    info['outer_rew'] = -1
-            else:
-                new_objs.append(obj)
-        self.objects = new_objs
-        done = len(self.objects) == 0
-        return Step(self.get_current_obs(), reward, done, **info)
-
-    def get_readings(self):  # equivalent to get_current_maze_obs in maze_env.py
-        # compute sensor readings
-        # first, obtain current orientation
-        apple_readings = np.zeros(self.n_bins)
-        bomb_readings = np.zeros(self.n_bins)
-        robot_x, robot_y = self.wrapped_env.get_body_com("torso")[:2]
-        # sort objects by distance to the robot, so that farther objects'
-        # signals will be occluded by the closer ones'
-        sorted_objects = sorted(
-            self.objects, key=lambda o:
-            (o[0] - robot_x) ** 2 + (o[1] - robot_y) ** 2)[::-1]
-        # fill the readings
-        bin_res = self.sensor_span / self.n_bins
-
-        ori = self.get_ori()  # overwrite this for Ant!
-
-        for ox, oy, typ in sorted_objects:
-            # compute distance between object and robot
-            dist = ((oy - robot_y) ** 2 + (ox - robot_x) ** 2) ** 0.5
-            # only include readings for objects within range
-            if dist > self.sensor_range:
-                continue
-            angle = math.atan2(oy - robot_y, ox - robot_x) - ori
-            if math.isnan(angle):
-                import ipdb; ipdb.set_trace()
-            angle = angle % (2 * math.pi)
-            if angle > math.pi:
-                angle = angle - 2 * math.pi
-            if angle < -math.pi:
-                angle = angle + 2 * math.pi
-            # outside of sensor span - skip this
-            half_span = self.sensor_span * 0.5
-            if abs(angle) > half_span:
-                continue
-            bin_number = int((angle + half_span) / bin_res)
-            intensity = 1.0 - dist / self.sensor_range
-            if typ == APPLE:
-                apple_readings[bin_number] = intensity
-            else:
-                bomb_readings[bin_number] = intensity
-        return apple_readings, bomb_readings
-
-    def get_current_robot_obs(self):
-        return self.wrapped_env.get_current_obs()
-
-    def get_current_obs(self):
-        # return sensor data along with data about itself
-        self_obs = self.wrapped_env.get_current_obs()
-        apple_readings, bomb_readings = self.get_readings()
-        return np.concatenate([self_obs, apple_readings, bomb_readings])
-"""
 
 def extend_ant_cfg(cfg: str = brax.envs.ant._SYSTEM_CONFIG,
                    cage_max_xy: jp.ndarray = jp.array([4.5, 4.5]),
@@ -139,21 +25,10 @@ def extend_ant_cfg(cfg: str = brax.envs.ant._SYSTEM_CONFIG,
     draw_arena(cfg, cage_max_xy[0] + offset, cage_max_xy[1] + offset, 0.5)
     for b in ant_body_names:
         cfg.collide_include.add(first=b, second='Arena')
-    # Add apples and bombs. All frozen, non-collidable objects, all starting in same spot (actual spot determined on reset)
-    for i in range(n_apples):
-        apple = cfg.bodies.add(name=f'Target_{i+1}', mass=1.)
-        apple.frozen.all = True
-        sph = apple.colliders.add().sphere
-        sph.radius = 0.25
-    for i in range(n_bombs):
-        bomb = cfg.bodies.add(name=f'Bomb_{i+1}', mass=1.)
-        bomb.frozen.all = True
-        sph = bomb.colliders.add().sphere
-        sph.radius = 0.25
     return cfg
 
 
-class AntGatherEnv(env.Env):
+class AntMazeEnv(env.Env):
     """
     Args:
         n_apples: Number of apples in environment (+1 reward each)
@@ -171,13 +46,14 @@ class AntGatherEnv(env.Env):
       n_bins apple readings and n_bins bomb readings
     """
     def __init__(self,
-                 n_apples: int = 8,
-                 n_bombs: int = 8,
+                 maze_height: float = 2.,
+                 maze_size_scaling: float = 3.,
                  cage_xy: Sequence[float] = (6, 6),
                  robot_object_spacing: float = 2.,
                  catch_range: float = 1.,
-                 n_bins: int = 10,
-                 sensor_range: float = 6.,
+                 length: float = 1.,
+                 n_bins: int = 20,
+                 sensor_range: float = 10.,
                  sensor_span: float = jp.pi,
                  dying_cost: float = -10.,
                  **kwargs
