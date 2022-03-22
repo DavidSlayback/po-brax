@@ -8,8 +8,8 @@ import jax
 from brax import jumpy as jp
 from brax.envs import env
 import jax.numpy as jnp
-from .more_jp import while_loop, meshgrid, index_add
-from .utils import draw_arena
+from more_jp import while_loop, meshgrid, index_add, randint, choice
+from utils import draw_arena
 from google.protobuf import text_format
 
 """
@@ -127,19 +127,28 @@ ORI_IDX = 6 for ant
         return np.concatenate([self_obs, apple_readings, bomb_readings])
 """
 
-def extend_ant_cfg(cfg: str = brax.envs.ant._SYSTEM_CONFIG, cage_max_xy: jp.ndarray = jp.array([4.5, 4.5]), offset: float = 1) -> brax.Config:
+def extend_ant_cfg(cfg: str = brax.envs.ant._SYSTEM_CONFIG,
+                   cage_max_xy: jp.ndarray = jp.array([4.5, 4.5]),
+                   offset: float = 1,
+                   n_apples: int = 8,
+                   n_bombs: int = 8) -> brax.Config:
     cfg = text_format.Parse(cfg, brax.Config())  # Get ant config
-    ant_body_names = [b.name for b in cfg.bodies if b.name != 'Ground']
-    # Add target
-    target = cfg.bodies.add(name='Target', mass=1.)
-    target.frozen.all = True
-    sph = target.colliders.add().sphere
-    sph.radius = 0.5
+    ant_body_names = [b.name for b in cfg.bodies if b.name != 'Ground']  # Find ant components
     # Add arena
     draw_arena(cfg, cage_max_xy[0] + offset, cage_max_xy[1] + offset, 0.5)
     for b in ant_body_names:
         cfg.collide_include.add(first=b, second='Arena')
-    # print(cfg)
+    # Add apples and bombs. All frozen, non-collidable objects, all starting in same spot (actual spot determined on reset)
+    for i in range(n_apples):
+        apple = cfg.bodies.add(name=f'Target_{i+1}', mass=1.)
+        apple.frozen.all = True
+        sph = apple.colliders.add().sphere
+        sph.radius = 0.25
+    for i in range(n_bombs):
+        bomb = cfg.bodies.add(name=f'Bomb_{i+1}', mass=1.)
+        bomb.frozen.all = True
+        sph = bomb.colliders.add().sphere
+        sph.radius = 0.25
     return cfg
 
 
@@ -163,7 +172,7 @@ class AntGatherEnv(env.Env):
     def __init__(self,
                  n_apples: int = 8,
                  n_bombs: int = 8,
-                 cage_xy: Sequence[float, float] = (6, 6),
+                 cage_xy: Sequence[float] = (6, 6),
                  robot_object_spacing: float = 2.,
                  catch_range: float = 1.,
                  n_bins: int = 10,
@@ -173,69 +182,53 @@ class AntGatherEnv(env.Env):
                  **kwargs
                  ):
         self.cage_xy = jp.array(cage_xy)
-        cfg = extend_ant_cfg(cage_max_xy=self.cage_xy, offset=1.)  # Add walls
+        cfg = extend_ant_cfg(cage_max_xy=self.cage_xy, offset=1., n_apples=n_apples, n_bombs=n_bombs)  # Add walls, apples, and bombs
         self.sys = brax.System(cfg)
         # super().__init__(_SYSTEM_CONFIG)
         # Ant and target indexes
-        self.target_idx = self.sys.body.index['Target']
-        self.torso_idx = self.sys.body.index['$ Torso']
-        self.ant_indices = jp.arange(self.torso_idx, self.target_idx)  # All parts of ant
-        self.ant_l = self.ant_indices.shape[0]  # Number of parts that belong to ant
-        self.ant_mg = tuple(meshgrid(self.ant_indices, jp.arange(0, 2)))  # Indices that correspond to x,y positions of all parts of ant
+        self.torso_idx = self.sys.body.index['$ Torso']  # Ant always starting in small jitter range at 0
+        self.n_apples = n_apples
+        self.n_bombs = n_bombs
+        self.n_objects = n_apples + n_bombs
+        self.n_bins = n_bins
+        last_ind = self.sys.num_bodies; first_ind = last_ind - (self.n_objects)
+        self.object_indices = jp.arange(first_ind, last_ind)  # Indices for apples and bombs
+        # Find all integer locations at least robot_object_spacing away from ant spawn position
+        possible_grid_positions = jp.stack([g.ravel() for g in meshgrid(jp.arange(-self.cage_xy[0], self.cage_xy[0]+1), jp.arange(-self.cage_xy[1], self.cage_xy[1]+1))], axis=1)
+        self.possible_grid_positions = jp.stack([g for g in possible_grid_positions if jp.norm(g) > robot_object_spacing], axis=0)
+        self.possible_grid_positions = jp.concatenate([self.possible_grid_positions, jp.zeros((self.possible_grid_positions.shape[0], 1))], axis=1)
 
     def reset(self, rng: jp.ndarray) -> env.State:
-        rng, rng1, rng2, rng3, rng4 = jp.random_split(rng, 5)
-        # Initial joint and velocity positions
-        qpos = self.sys.default_angle() + jp.random_uniform(
-            rng1, (self.sys.num_joint_dof,), -.1, .1)
-        qvel = jp.random_uniform(rng2, (self.sys.num_joint_dof,), -.1, .1)
-        # initial ant position
-        ant_pos = jp.random_uniform(rng3, (2,), -self.cage_xy, self.cage_xy)
-        # Set default qp with the sampled joints
-        qp = self.sys.default_qp(joint_angle=qpos, joint_velocity=qvel)
-        # Add ant xy to all ant part positions (otherwise they spring back hilariously)
-        pos = index_add(qp.pos, self.ant_mg, ant_pos[..., None])
-        # Sample random target position based on ant
-        _, tgt = self._random_target(rng4, ant_pos)
-        # Update ant position with this
-        pos = jp.index_update(pos, self.target_idx, tgt)
-        # Actually update qpos
-        qp = qp.replace(pos=pos)
+        qp = self.sample_init_qp(rng)
         info = self.sys.info(qp)
         obs = self._get_obs(qp, info)
         reward, done, zero = jp.zeros(3)
         metrics = {
-            'hits': zero,
+            'apples': zero,
+            'bombs': zero,
         }
         info = {'rng': rng}  # Save rng
         return env.State(qp, obs, reward, done, metrics, info)
 
-    def _random_target(self, rng: jp.ndarray, ant_xy: jp.ndarray) -> Tuple[jp.ndarray, jp.ndarray]:
-        """Returns a target location at least min_spawn_location away from ant"""
-        xy = jp.random_uniform(rng, (2,), -self.cage_xy, self.cage_xy)
-        minus_ant = lambda xy: xy - ant_xy
-        def resample(rngxy: Tuple[jp.ndarray, jp.ndarray]) -> Tuple[jp.ndarray, jp.ndarray]:
-            rng, xy = rngxy
-            _, rng1 = jp.random_split(rng, 2)
-            xy = jp.random_uniform(rng1, (2,), -self.cage_xy, self.cage_xy)
-            return rng1, xy
+    def sample_init_qp(self, rng: jp.ndarray) -> brax.QP:
+        rng, rng1, rng2, rng3 = jp.random_split(rng, 4)
+        # Initial joint and velocity positions
+        qpos = self.sys.default_angle() + jp.random_uniform(
+            rng1, (self.sys.num_joint_dof,), -.1, .1)
+        qvel = jp.random_uniform(rng2, (self.sys.num_joint_dof,), -.1, .1)
+        # Set default qp with the sampled joints
+        qp = self.sys.default_qp(joint_angle=qpos, joint_velocity=qvel)
+        # Sample object positions
+        object_pos = choice(rng3, self.possible_grid_positions, (self.n_objects,), replace=False)
+        # apple_pos, bomb_pos = object_pos[:self.n_apples], object_pos[self.n_apples:]
+        # Update object positions
+        pos = jp.index_update(qp.pos, self.object_indices, object_pos)
+        return qp.replace(pos=pos)
 
-        _, xy = while_loop(lambda rngxy: jp.norm(minus_ant(rngxy[1])) <= self.min_spawn_distance,
-                              resample,
-                              (rng, xy))
-        target_z = 0.5
-        target = jp.array([*xy, target_z]).transpose()
-        return rng, target
 
     def step(self, state: env.State, action: jp.ndarray) -> env.State:
         """Run one timestep of the environment's dynamics."""
         qp, info = self.sys.step(state.qp, action)
-        # Move target
-        rng, tgt_pos = self._step_target(state.info['rng'], qp.pos[self.torso_idx, :2], qp.pos[self.target_idx, :2])
-        pos = jp.index_update(qp.pos, self.target_idx, tgt_pos)
-        qp = qp.replace(pos=pos)
-        # Update rng
-        state.info.update(rng=rng)
         # Get observation
         obs = self._get_obs(qp, info)
         # Done if we "tag"
@@ -244,25 +237,6 @@ class AntGatherEnv(env.Env):
         # Reward is 1 for tag, 0 otherwise
         reward = jp.where(done > 0, jp.float32(1), jp.float32(0))
         return state.replace(qp=qp, obs=obs, reward=reward, done=done)
-
-    def _step_target(self, rng: jp.ndarray, ant_xy: jp.ndarray, tgt_xy: jnp.ndarray) -> Tuple[jp.ndarray, jp.ndarray]:
-        """Move target in 1 of 4 directions based on ant"""
-        rng, rng1 = jp.random_split(rng, 2)
-        choice = jax.random.randint(rng1, (), 0, 4)
-        # Unit vector of target -> ant
-        target2ant_vec = ant_xy - tgt_xy
-        target2ant_vec = target2ant_vec / jp.norm(target2ant_vec)
-
-        # Orthogonal vectors
-        per_vec_1 = jp.multiply(target2ant_vec[::-1], jp.array([1., -1.]))
-        per_vec_2 = jp.multiply(target2ant_vec[::-1], jp.array([-1., 1.]))
-        # per_vec_2 = jp.array([-target2ant_vec[1], target2ant_vec[0]])
-        opposite_vec = -target2ant_vec  # run away!
-
-        vec_list = jp.stack([per_vec_1, per_vec_2, opposite_vec, jp.zeros(2)], 0)
-        new_tgt_xy = vec_list[choice] * self.target_step + tgt_xy
-        new_tgt_xy = jp.where((jp.abs(new_tgt_xy) > self.cage_xy).any(), tgt_xy, new_tgt_xy)
-        return rng, jp.concatenate((new_tgt_xy, jp.ones(1)), 0)
 
     def _get_obs(self, qp: brax.QP, info: brax.Info) -> jp.ndarray:
         """Observe ant body position and velocities."""
@@ -303,7 +277,7 @@ class AntGatherEnv(env.Env):
 
 
 if __name__ == "__main__":
-    e = AntTagEnv()
+    e = AntGatherEnv()
     from brax.envs.wrappers import EpisodeWrapper, VectorWrapper, AutoResetWrapper, VectorGymWrapper, GymWrapper
     from brax.io import html
     # e = AutoResetWrapper(VectorWrapper(EpisodeWrapper(e, 1000, 1), 16))
