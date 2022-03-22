@@ -12,7 +12,7 @@ from brax.envs.wrappers import VmapWrapper
 from po_brax.wrappers import RandomizedAutoResetWrapperNaive, ActionRepeatWrapper, AutoResetWrapper, RandomizedAutoResetWrapperOnTerminal
 import jax
 
-ENV_NAME = 'ant_heavenhell'
+ENV_NAME = 'ant_gather'
 B = 16
 T = 1000
 if __name__ == "__main__":
@@ -20,7 +20,8 @@ if __name__ == "__main__":
     # e = envs.ant_heavenhell.AntHeavenHellEnv()
     # o = e.reset(key)
     multi_key = jp.random_split(key, B)
-    e = VmapWrapper(envs.ant_heavenhell.AntHeavenHellEnv())
+    # e = VmapWrapper(envs.ant_heavenhell.AntHeavenHellEnv())
+    e = VmapWrapper(envs.ant_gather.AntGatherEnv())
     e = RandomizedAutoResetWrapperNaive(e)
     reset = jax.jit(e.reset)
     step = jax.jit(e.step)

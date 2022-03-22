@@ -4,12 +4,13 @@ See: https://github.com/rll/rllab/blob/master/rllab/envs/mujoco/gather/gather_en
 """
 from typing import Tuple, Sequence
 import brax
+from brax import math as math
 import jax
 from brax import jumpy as jp
 from brax.envs import env
 import jax.numpy as jnp
-from more_jp import while_loop, meshgrid, index_add, randint, choice
-from utils import draw_arena
+from .more_jp import meshgrid, choice
+from .utils import draw_arena
 from google.protobuf import text_format
 
 """
@@ -162,7 +163,7 @@ class AntGatherEnv(env.Env):
         catch_range: Distance at which robot "catches" apple or bomb
         n_bins: Resolution of ant sensor. If multiple objects are in same bin span, only closest is seen
         sensor_range: Range of ant sensors
-        sensor_span: Arc (in degrees) of ant sensors
+        sensor_span: Arc (in radians) of ant sensors
         dying_cost: Cost for death (undoable locomotion error)
 
     Apples and bombs spawn at any integer grid location within cage_xy, except those too close to origin
@@ -177,7 +178,7 @@ class AntGatherEnv(env.Env):
                  catch_range: float = 1.,
                  n_bins: int = 10,
                  sensor_range: float = 6.,
-                 sensor_span: float = 180,
+                 sensor_span: float = 2 * jp.pi,
                  dying_cost: float = -10.,
                  **kwargs
                  ):
@@ -191,21 +192,30 @@ class AntGatherEnv(env.Env):
         self.n_bombs = n_bombs
         self.n_objects = n_apples + n_bombs
         self.n_bins = n_bins
+        self.dying_cost = dying_cost
+        self.sensor_range = sensor_range
+        self.half_span = sensor_span / 2
+        self.catch_range = catch_range
         last_ind = self.sys.num_bodies; first_ind = last_ind - (self.n_objects)
         self.object_indices = jp.arange(first_ind, last_ind)  # Indices for apples and bombs
         # Find all integer locations at least robot_object_spacing away from ant spawn position
         possible_grid_positions = jp.stack([g.ravel() for g in meshgrid(jp.arange(-self.cage_xy[0], self.cage_xy[0]+1), jp.arange(-self.cage_xy[1], self.cage_xy[1]+1))], axis=1)
         self.possible_grid_positions = jp.stack([g for g in possible_grid_positions if jp.norm(g) > robot_object_spacing], axis=0)
         self.possible_grid_positions = jp.concatenate([self.possible_grid_positions, jp.zeros((self.possible_grid_positions.shape[0], 1))], axis=1)
+        self.waiting_area = self.possible_grid_positions[-1] + self.sensor_range * 2  # Stick captured objects somewhere else
 
     def reset(self, rng: jp.ndarray) -> env.State:
         qp = self.sample_init_qp(rng)
         info = self.sys.info(qp)
-        obs = self._get_obs(qp, info)
+        distances = jp.norm(qp.pos[self.torso_idx][:2] - qp.pos[self.object_indices][..., :2],
+                            axis=1)  # Distances to all objects
+        obs = self._get_obs(qp, info, distances)
         reward, done, zero = jp.zeros(3)
+        # Use metrics to track apples and bombs, determine termination
         metrics = {
             'apples': zero,
             'bombs': zero,
+            'objects': zero,
         }
         info = {'rng': rng}  # Save rng
         return env.State(qp, obs, reward, done, metrics, info)
@@ -225,26 +235,66 @@ class AntGatherEnv(env.Env):
         pos = jp.index_update(qp.pos, self.object_indices, object_pos)
         return qp.replace(pos=pos)
 
-
     def step(self, state: env.State, action: jp.ndarray) -> env.State:
         """Run one timestep of the environment's dynamics."""
         qp, info = self.sys.step(state.qp, action)
+        distances = jp.norm(qp.pos[self.torso_idx][:2] - qp.pos[self.object_indices][..., :2],
+                            axis=1)  # Distances to all objects
         # Get observation
-        obs = self._get_obs(qp, info)
-        # Done if we "tag"
-        done = jp.where(jp.norm(qp.pos[self.torso_idx, :2] - qp.pos[self.target_idx, :2]) <= self.tag_radius, jp.float32(1), jp.float32(0))
-        state.metrics.update(hits=done)
-        # Reward is 1 for tag, 0 otherwise
-        reward = jp.where(done > 0, jp.float32(1), jp.float32(0))
+        obs = self._get_obs(qp, info, distances)
+        # "Death" and associated rewards
+        done = jp.where(qp.pos[self.torso_idx, 2] < 0.2, x=jp.float32(1), y=jp.float32(0))
+        done = jp.where(qp.pos[self.torso_idx, 2] > 1.0, x=jp.float32(1), y=done)
+        reward = jp.where(done > 0, jp.float32(self.dying_cost), jp.float32(0))
+        # Rewards for apples and bombs
+        in_range = distances <= self.catch_range
+        # Move objects we hit to the waiting area
+        tgt_pos = jp.where(in_range[:, None], self.waiting_area, qp.pos[self.object_indices])
+        qp = qp.replace(pos=jp.index_update(qp.pos, self.object_indices, tgt_pos))
+
+        in_range_apple, in_range_bomb = in_range[:self.n_apples], in_range[self.n_apples:]
+        reward = jp.where(in_range_apple.any() & (done == 0), jp.float32(1), reward)
+        reward = jp.where(in_range_bomb.any() & (done == 0), jp.float32(-1), reward)
+        # Done if we hit all objects
+        done = jp.where((qp.pos[self.object_indices] == self.waiting_area).all(), jp.float32(1),done)
+        apples_hit, bombs_hit = in_range_apple.sum(), in_range_bomb.sum()
+        state.metrics.update(apples=apples_hit, bombs=bombs_hit)
+
         return state.replace(qp=qp, obs=obs, reward=reward, done=done)
 
-    def _get_obs(self, qp: brax.QP, info: brax.Info) -> jp.ndarray:
-        """Observe ant body position and velocities."""
-        # Check if we can observe target. Otherwise just 0s
-        target_xy = qp.pos[self.target_idx, :2]  # xy of target
-        ant_xy = qp.pos[self.torso_idx, :2]  # xy of ant
-        target_xy = jp.where(jp.norm(target_xy - ant_xy) <= self.visible_radius, target_xy, jp.zeros(2))
+    def _get_readings(self, qp: brax.QP, distances: jp.ndarray) -> jp.ndarray:
+        """Get sensor readings for ant
 
+        Get ant
+          ori = [0, 1, 0, 0]
+          rot = ant_quat
+          ori = q_mult(q_mult(rot, ori), q_inv(rot))[1:3]
+          ori = atan2(ori[1], ori[0])
+        Split ant sensor span into n_bins
+        For each bin, get only closest of each object type (apple or bomb)
+        """
+        readings = jnp.zeros(self.n_bins * 2)
+        bin_res = (2 * self.half_span) / self.n_bins  # FOV for each bin
+        ant_orientation = qp.rot[self.torso_idx]  # Quaternion orientation
+        ori = jp.array([0,1,0,0])
+        ori = math.quat_mul(math.quat_mul(ant_orientation, ori), math.quat_inv(ant_orientation))[1:3]
+        ori = jp.arctan2(ori[1], ori[0])  # Projected into x-y plane
+        object_xy = qp.pos[self.object_indices][..., :2]
+        angles = jp.arctan2(object_xy[...,0], object_xy[...,1]) - ori  # Angle from ant face to all objects (-pi to pi)
+        in_range = distances <= self.sensor_range
+        # Sensor bin for each object (apples then bombs) (-1 of out of range/span) (nobjects,)
+        object_bins = jp.where(jp.logical_and(jp.abs(angles) <= self.half_span, in_range)
+                               , ((angles + self.half_span) / bin_res).astype(int), jp.int32(-1))
+        bomb_bins = jp.where(object_bins[self.n_apples:] >= 0, object_bins[self.n_apples:] + self.n_apples, -1)
+        object_bins = jp.index_update(object_bins, jp.arange(self.n_apples, self.n_objects), bomb_bins)
+        object_intensities = jp.where(object_bins >= 0, 1. - (distances / self.sensor_range), jp.float32(0))
+        readings = jp.index_update(readings, object_bins, object_intensities)
+        # sorted_indices = object_bins.argsort()  # Sort so that -1 is all at beginning
+        # TODO: Not quite right. This doesn't guarantee the closest reading, it just guarantees *a* reading
+        return readings
+
+    def _get_obs(self, qp: brax.QP, info: brax, distances: jp.ndarray) -> jp.ndarray:
+        """Observe ant body position and velocities."""
         # some pre-processing to pull joint angles and velocities
         (joint_angle,), (joint_vel,) = self.sys.joints[0].angle_vel(qp)
 
@@ -252,8 +302,7 @@ class AntGatherEnv(env.Env):
         # XYZ of the torso (3,)
         # orientation of the torso as quaternion (4,)
         # joint angles (8,)
-        # target xy (2,)
-        qpos = [qp.pos[0], qp.rot[0], joint_angle, target_xy]
+        qpos = [qp.pos[0], qp.rot[0], joint_angle]
 
         # qvel:
         # velcotiy of the torso (3,)
@@ -271,9 +320,10 @@ class AntGatherEnv(env.Env):
         ]
         # flatten bottom dimension
         cfrc = [jp.reshape(x, x.shape[:-2] + (-1,)) for x in cfrc]
-        # Target xy (if in range)
+        # Sensor readings
+        readings = [self._get_readings(qp, distances)]
 
-        return jp.concatenate(qpos + qvel + cfrc)
+        return jp.concatenate(qpos + qvel + cfrc + readings)
 
 
 if __name__ == "__main__":
@@ -282,7 +332,7 @@ if __name__ == "__main__":
     from brax.io import html
     # e = AutoResetWrapper(VectorWrapper(EpisodeWrapper(e, 1000, 1), 16))
     e = AutoResetWrapper(EpisodeWrapper(e, 1000, 1))
-    egym = GymWrapper(e, seed=0, backend='cpu')
+    egym = GymWrapper(e, seed=0, backend='gpu')
     # egym = VectorGymWrapper(e, seed=0, backend='cpu')
     # egym = gym.wrappers.record_video.RecordVideo(egym, 'videos/', video_length=2)
     ogym = egym.reset()

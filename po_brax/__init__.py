@@ -21,6 +21,7 @@ from brax.envs import walker2d
 from brax.envs import wrappers as bwrappers
 from .ant_tag import AntTagEnv
 from .ant_heavenhell import AntHeavenHellEnv
+from .ant_gather import AntGatherEnv
 from brax.envs.env import Env, State, Wrapper
 import gym
 
@@ -29,6 +30,7 @@ _envs = {
     'ant': ant.Ant,
     'ant_tag': AntTagEnv,
     'ant_heavenhell': AntHeavenHellEnv,
+    'ant_gather': AntGatherEnv,
     'fast': fast.Fast,
     'fetch': fetch.Fetch,
     'grasp': grasp.Grasp,
