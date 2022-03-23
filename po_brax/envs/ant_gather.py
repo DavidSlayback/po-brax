@@ -116,6 +116,7 @@ class AntGatherEnv(env.Env):
         qp = self.sys.default_qp(joint_angle=qpos, joint_velocity=qvel)
         # Sample object positions
         object_pos = choice(rng3, self.possible_grid_positions, (self.n_objects,), replace=False)
+        object_pos = jp.index_update(object_pos, (jp.arange(0, self.n_apples), 2), 1.)  # Make apples higher
         # apple_pos, bomb_pos = object_pos[:self.n_apples], object_pos[self.n_apples:]
         # Update object positions
         pos = jp.index_update(qp.pos, self.object_indices, object_pos)
