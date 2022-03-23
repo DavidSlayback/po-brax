@@ -5,7 +5,7 @@ import jax
 from brax import jumpy as jp
 from brax.envs import env
 import jax.numpy as jnp
-from .more_jp import while_loop, meshgrid, index_add
+from ..more_jp import while_loop, meshgrid, index_add
 from .utils import draw_arena
 from google.protobuf import text_format
 
@@ -22,7 +22,6 @@ def extend_ant_cfg(cfg: str = brax.envs.ant._SYSTEM_CONFIG, cage_max_xy: jp.ndar
     draw_arena(cfg, cage_max_xy[0] + offset, cage_max_xy[1] + offset, 0.5)
     for b in ant_body_names:
         cfg.collide_include.add(first=b, second='Arena')
-    # print(cfg)
     return cfg
 
 
@@ -35,8 +34,6 @@ class AntTagEnv(env.Env):
         self.min_spawn_distance = kwargs.get('min_spawn_distance', 5.)
         self.cage_x, self.cage_y = kwargs.get('cage_xy', (4.5, 4.5))
         self.cage_xy = jp.array((self.cage_x, self.cage_y))
-        # See https://github.com/google/brax/issues/161
-        # cfg = add_walls()
         cfg = extend_ant_cfg(cage_max_xy=self.cage_xy, offset=1.)
         self.sys = brax.System(cfg)
         # super().__init__(_SYSTEM_CONFIG)

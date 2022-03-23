@@ -3,7 +3,7 @@ import brax
 import jax
 from brax import jumpy as jp
 from brax.envs import env
-from .more_jp import meshgrid, index_add, choice, atleast_1d, cond
+from ..more_jp import meshgrid, index_add, choice, atleast_1d, cond
 from .utils import draw_t_maze
 from google.protobuf import text_format
 

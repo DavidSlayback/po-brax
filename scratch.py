@@ -1,15 +1,11 @@
-import brax
 import brax.jumpy as jp
 import torch
 # have torch allocate on device first, to prevent JAX from swallowing up all the
 # GPU memory. By default JAX will pre-allocate 90% of the available GPU memory:
 # https://jax.readthedocs.io/en/latest/gpu_memory_allocation.html
 v = torch.ones(1, device='cuda')
-import torch.nn as nn
-import torch.nn.functional as F
-import po_brax as envs
 from brax.envs.wrappers import VmapWrapper
-from po_brax.wrappers import RandomizedAutoResetWrapperNaive, ActionRepeatWrapper, AutoResetWrapper, RandomizedAutoResetWrapperOnTerminal
+from po_brax import RandomizedAutoResetWrapperNaive
 import jax
 
 ENV_NAME = 'ant_gather'
@@ -21,7 +17,7 @@ if __name__ == "__main__":
     # o = e.reset(key)
     multi_key = jp.random_split(key, B)
     # e = VmapWrapper(envs.ant_heavenhell.AntHeavenHellEnv())
-    e = VmapWrapper(envs.ant_gather.AntGatherEnv())
+    e = VmapWrapper(po_brax.envs.ant_gather.AntGatherEnv())
     e = RandomizedAutoResetWrapperNaive(e)
     reset = jax.jit(e.reset)
     step = jax.jit(e.step)

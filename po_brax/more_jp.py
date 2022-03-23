@@ -17,7 +17,7 @@ def while_loop(cond_fun: Callable[[X], Any],
     return val
 
 
-def fori_loop(lower, upper,
+def fori_loop(lower: int, upper: int,
                body_fun: Callable[[X], X],
                init_val: X) -> X:
   """Call body function while conditional function is true, starting with state"""

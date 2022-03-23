@@ -1,9 +1,11 @@
 import brax.envs.wrappers
 import brax.jumpy as jp
 from brax.envs.env import Wrapper, Env, State
-from .more_jp import cond
+from po_brax.more_jp import cond
+
 
 VectorWrapper = brax.envs.wrappers.VmapWrapper  # Need this version to do rng properly
+
 
 class ActionRepeatWrapper(Wrapper):
     """Just change action duration (episode wrapper on top will ignore change in length of steps)"""
@@ -14,7 +16,9 @@ class ActionRepeatWrapper(Wrapper):
             self.unwrapped.sys.config.substeps *= action_repeat
         self.action_repeat = action_repeat
 
+
 AutoResetWrapper = brax.envs.wrappers.AutoResetWrapper
+
 
 class RandomizedAutoResetWrapperNaive(Wrapper):
     """Automatically resets Brax envs that are done.

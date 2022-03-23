@@ -9,7 +9,7 @@ import jax
 from brax import jumpy as jp
 from brax.envs import env
 import jax.numpy as jnp
-from .more_jp import meshgrid, choice
+from ..more_jp import meshgrid, choice
 from .utils import draw_arena
 from .maze_utils import construct_maze
 from google.protobuf import text_format

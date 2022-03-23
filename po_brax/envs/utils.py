@@ -84,7 +84,6 @@ def draw_arena(cfg: brax.Config, cage_x: float, cage_y: float, capsule_radius_or
         add_capsule_wall_to_body(arena, xy_positions[i], xy_positions[int((i+1) % 4)], r, True) if not use_boxes else add_box_wall_to_body(arena, xy_positions[i], xy_positions[int((i+1) % 4)], capsule_radius_or_box_half_height, r)
 
 
-
 def draw_t_maze(cfg: brax.Config, t_x: float, t_y: float, hallway_width: float = 2.,
                 capsule_radius_or_box_half_height: float = 0.5, arena_name: str = "Arena", use_boxes: bool = True) -> None:
     """Draw a T (like in TMaze or heaven hell)
