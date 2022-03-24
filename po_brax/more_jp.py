@@ -102,3 +102,8 @@ def cond(pred, true_fun: Callable, false_fun: Callable, *operands: Any):
     else:
       return false_fun(operands)
 
+
+def logical_or(x1: ndarray, x2: ndarray) -> ndarray:
+  """Returns the truth value of x1 OR x2 element-wise."""
+  return _which_np(x1, x2).logical_or(x1, x2)
+

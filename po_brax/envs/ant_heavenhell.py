@@ -1,4 +1,6 @@
 """Trains an ant to go to heaven by following the advice of a priest"""
+from collections import Sequence
+
 import brax
 import jax
 from brax import jumpy as jp
@@ -38,12 +40,26 @@ def extend_ant_cfg(cfg: str = brax.envs.ant._SYSTEM_CONFIG, hhp: jp.ndarray = jp
 
 
 class AntHeavenHellEnv(env.Env):
-    def __init__(self, **kwargs):
+    """AntHeavenHell. Basically TMaze with partial observability
+
+    Args:
+        heaven_hell: xy positions of heaven hell. By convention, both at same y, left + right
+        priest_position: Position of priest. Typically at the top of T
+        visible_radius: Radius within which ant can see priest
+        dying_cost: Cost for death (undoable locomotion error)
+    """
+    def __init__(self,
+                 heaven_hell: Sequence[Sequence[float]] = ((-5.25, 7.), (5.25, 7.)),
+                 priest_position: Sequence[float] = (0, 7.),
+                 visible_radius: float = 2.,
+                 dying_cost: float = -2.,
+                 **kwargs):
         # Preliminaries
-        self.heaven_hell_xy = jp.array(kwargs.get('heaven_hell', [[-5.25, 7.], [5.25, 7.]]))
-        self.priest_pos = jp.array(kwargs.get('priest_pos', [0., 7.]))  # Priest is at 0,6 xy
+        self.heaven_hell_xy = jp.array(heaven_hell)
+        self.priest_pos = jp.array(priest_position)
         self._hhp = jp.concatenate((jp.concatenate((self.heaven_hell_xy, self.priest_pos[None, ...]), axis=0), jp.ones((3, 1))), axis=1)
-        self.visible_radius = kwargs.get('visible_radius', 2.)  # Where can I see priest
+        self.visible_radius = visible_radius
+        self.dying_cost = dying_cost
         cfg = extend_ant_cfg(hhp=self._hhp, hallway_width=2.)
         self.sys = brax.System(cfg)
         # Ant and target indexes
@@ -90,11 +106,15 @@ class AntHeavenHellEnv(env.Env):
     def step(self, state: env.State, action: jp.ndarray) -> env.State:
         """Run one timestep of the environment's dynamics."""
         qp, info = self.sys.step(state.qp, action)
+        # "Death" and associated rewards
+        dead = jp.where(qp.pos[self.torso_idx, 2] < 0.2, x=jp.float32(1), y=jp.float32(0))
+        dead = jp.where(qp.pos[self.torso_idx, 2] > 1.0, x=jp.float32(1), y=dead)
+        reward = jp.where(dead > 0, jp.float32(self.dying_cost), jp.float32(0))
         heaven_hell_priest = jp.stack([qp.pos[self.target_idx], qp.pos[self.hell_idx], qp.pos[self.priest_idx]])
         # Are we in range of heaven/hell (done+reward) or priest (extra observation)
         in_range = (jp.norm(heaven_hell_priest[:, :2] - qp.pos[self.torso_idx, :2], axis=-1) <= self.visible_radius)
         priest_in_range = in_range[-1]
-        reward = jp.where(in_range[0], jp.float32(1), jp.float32(0))  # +1 for heaven
+        reward = jp.where(in_range[0], jp.float32(1), reward)  # +1 for heaven
         reward = jp.where(in_range[1], jp.float32(-1), reward)  # -1 for hell
         done = jp.where(reward != 0, jp.float32(1), jp.float32(0))  # Done if any reward
         # Get observation
@@ -114,8 +134,7 @@ class AntHeavenHellEnv(env.Env):
         # XYZ of the torso (3,)
         # orientation of the torso as quaternion (4,)
         # joint angles (8,)
-        # heaven direction (1,)
-        qpos = [qp.pos[0], qp.rot[0], joint_angle, heaven_direction]
+        qpos = [qp.pos[0], qp.rot[0], joint_angle]
 
         # qvel:
         # velcotiy of the torso (3,)
@@ -135,40 +154,8 @@ class AntHeavenHellEnv(env.Env):
         cfrc = [jp.reshape(x, x.shape[:-2] + (-1,)) for x in cfrc]
         # Target xy (if in range)
 
-        return jp.concatenate(qpos + qvel + cfrc)
-
-
-class AntHeavenHellEnv_Autoreset(AntHeavenHellEnv):
-    def __init__(self, episode_length: int, **kwargs):
-        super().__init__(**kwargs)
-        self.episode_length = episode_length
-
-    def reset(self, rng: jp.ndarray) -> env.State:
-        state = super().reset(rng)
-        state.info['steps'] = jp.zeros(())
-        state.info['truncation'] = jp.zeros(())
-        return state
-
-    def step(self, state: env.State, action: jp.ndarray) -> env.State:
-        """Run one timestep of the environment's dynamics. Reset state if done"""
-        qp, info = self.sys.step(state.qp, action)
-        heaven_hell_priest = jp.stack([qp.pos[self.target_idx], qp.pos[self.hell_idx], qp.pos[self.priest_idx]])
-        state.info['steps'] = state.info['steps'] + 1
-        # Are we in range of heaven/hell (done+reward) or priest (extra observation)
-        in_range = (jp.norm(heaven_hell_priest[:, :2] - qp.pos[self.torso_idx, :2], axis=-1) <= self.visible_radius)
-        # priest_in_range = in_range[-1]
-        reward = jp.where(in_range[0], jp.float32(1), jp.float32(0))  # +1 for heaven
-        reward = jp.where(in_range[1], jp.float32(-1), reward)  # -1 for hell
-        done = jp.where(reward != 0, jp.float32(1), jp.float32(0))  # Done if any reward
-        done = jp.where(state.info['steps'] >= self.episode_length, jp.ones_like(done), done)
-        state.info['rng'], qp = cond(done > 0, self.sample_init_qp, lambda rng: (rng, qp), state.info['rng'])
-        state.info['truncation'] = jp.where(state.info['steps'] >= self.episode_length, 1 - done, jp.zeros_like(done))
-        priest_in_range = jp.norm(heaven_hell_priest[-1,:2] - qp.pos[self.torso_idx, :2]) <= self.visible_radius
-        # qp = self.sample_init_qp(state.info['rng'])
-        # Get observation
-        obs = self._get_obs(qp, info, priest_in_range)
-        state.metrics.update(heavens=(reward >= 1))
-        return state.replace(qp=qp, obs=obs, reward=reward, done=done)
+        # heaven direction (1,)
+        return jp.concatenate(qpos + qvel + cfrc + [heaven_direction])
 
 
 if __name__ == "__main__":

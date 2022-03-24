@@ -1,11 +1,11 @@
 """Trains an ant to "tag" a moving ball"""
-from typing import Tuple
+from typing import Tuple, Sequence
 import brax
 import jax
 from brax import jumpy as jp
 from brax.envs import env
 import jax.numpy as jnp
-from ..more_jp import while_loop, meshgrid, index_add
+from ..more_jp import while_loop, meshgrid, index_add, logical_or
 from .utils import draw_arena
 from google.protobuf import text_format
 
@@ -26,14 +26,30 @@ def extend_ant_cfg(cfg: str = brax.envs.ant._SYSTEM_CONFIG, cage_max_xy: jp.ndar
 
 
 class AntTagEnv(env.Env):
-    def __init__(self, **kwargs):
+    """
+    Args:
+        tag_radius: Radius within which target is considered "tagged" (ends episode)
+        visible_radius: Radius within which target is visible to ant
+        target_step: Size of evasive steps taken by target
+        min_spawn_distance: Minimum distance that target spawns away from ant
+        cage_xy: Max x and y values of arena (box from (-x,-y) to (x,y))
+        dying_cost: Penalty for dying (falling over, jumping out of bounds)
+    """
+    def __init__(self,
+                 tag_radius: float = 1.5,
+                 visible_radius: float = 3.,
+                 target_step: float = 0.5,
+                 min_spawn_distance: float = 5.,
+                 cage_xy: Sequence[float] = (4.5, 4.5),
+                 dying_cost: float = -1.,
+                 **kwargs):
         # Preliminaries
-        self.tag_radius = kwargs.get('tag_radius', 1.5)
-        self.visible_radius = kwargs.get('visible_radius', 3.)
-        self.target_step = kwargs.get('target_step', 0.5)
-        self.min_spawn_distance = kwargs.get('min_spawn_distance', 5.)
-        self.cage_x, self.cage_y = kwargs.get('cage_xy', (4.5, 4.5))
-        self.cage_xy = jp.array((self.cage_x, self.cage_y))
+        self.tag_radius = tag_radius
+        self.visible_radius = visible_radius
+        self.target_step = target_step
+        self.min_spawn_distance = min_spawn_distance
+        self.cage_xy = jp.array(cage_xy)
+        self.dying_cost = dying_cost
         cfg = extend_ant_cfg(cage_max_xy=self.cage_xy, offset=1.)
         self.sys = brax.System(cfg)
         # super().__init__(_SYSTEM_CONFIG)
@@ -91,6 +107,10 @@ class AntTagEnv(env.Env):
     def step(self, state: env.State, action: jp.ndarray) -> env.State:
         """Run one timestep of the environment's dynamics."""
         qp, info = self.sys.step(state.qp, action)
+        # "Death" and associated rewards
+        dead = jp.where(qp.pos[self.torso_idx, 2] < 0.2, x=jp.float32(1), y=jp.float32(0))
+        dead = jp.where(qp.pos[self.torso_idx, 2] > 1.0, x=jp.float32(1), y=dead)
+        reward = jp.where(dead > 0, jp.float32(self.dying_cost), jp.float32(0))
         # Move target
         rng, tgt_pos = self._step_target(state.info['rng'], qp.pos[self.torso_idx, :2], qp.pos[self.target_idx, :2])
         pos = jp.index_update(qp.pos, self.target_idx, tgt_pos)
@@ -103,8 +123,8 @@ class AntTagEnv(env.Env):
         done = jp.where(jp.norm(qp.pos[self.torso_idx, :2] - qp.pos[self.target_idx, :2]) <= self.tag_radius, jp.float32(1), jp.float32(0))
         state.metrics.update(hits=done)
         # Reward is 1 for tag, 0 otherwise
-        reward = jp.where(done > 0, jp.float32(1), jp.float32(0))
-        return state.replace(qp=qp, obs=obs, reward=reward, done=done)
+        reward = jp.where(done > 0, jp.float32(1), reward)
+        return state.replace(qp=qp, obs=obs, reward=reward, done=logical_or(dead, done))
 
     def _step_target(self, rng: jp.ndarray, ant_xy: jp.ndarray, tgt_xy: jnp.ndarray) -> Tuple[jp.ndarray, jp.ndarray]:
         """Move target in 1 of 4 directions based on ant"""
@@ -139,8 +159,7 @@ class AntTagEnv(env.Env):
         # XYZ of the torso (3,)
         # orientation of the torso as quaternion (4,)
         # joint angles (8,)
-        # target xy (2,)
-        qpos = [qp.pos[0], qp.rot[0], joint_angle, target_xy]
+        qpos = [qp.pos[0], qp.rot[0], joint_angle]
 
         # qvel:
         # velcotiy of the torso (3,)
@@ -158,9 +177,8 @@ class AntTagEnv(env.Env):
         ]
         # flatten bottom dimension
         cfrc = [jp.reshape(x, x.shape[:-2] + (-1,)) for x in cfrc]
-        # Target xy (if in range)
-
-        return jp.concatenate(qpos + qvel + cfrc)
+        # target xy (2,)
+        return jp.concatenate(qpos + qvel + cfrc + [target_xy])
 
 
 if __name__ == "__main__":

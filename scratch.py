@@ -10,7 +10,7 @@ from po_brax.envs import AntGatherEnv
 from po_brax.envs import create_gym_env
 import jax
 
-ENV_NAME = 'ant_gather'
+ENV_NAME = 'ant_heavenhell'
 B = 16
 T = 1000
 if __name__ == "__main__":

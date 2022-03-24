@@ -55,8 +55,11 @@ def create(env_name: str,
            **kwargs) -> Env:
     """Creates an Env with a specified brax system."""
     env = _envs[env_name](**kwargs)
+    if action_repeat is not None:
+        env = wrappers.ActionRepeatWrapper(env, action_repeat=action_repeat)
     if episode_length is not None:
-        env = bwrappers.EpisodeWrapper(env, episode_length, action_repeat)
+        env = bwrappers.EpisodeWrapper(env, episode_length, 1)
+        # env = bwrappers.EpisodeWrapper(env, episode_length, action_repeat)
     if batch_size:
         env = bwrappers.VmapWrapper(env)
         # env = bwrappers.VectorWrapper(env, batch_size)
@@ -94,7 +97,11 @@ def create_gym_env(env_name: str,
                    seed: int = 0,
                    backend: Optional[str] = None,
                    **kwargs) -> Union[gym.Env, gym.vector.VectorEnv]:
-    """Creates a `gym.Env` or `gym.vector.VectorEnv` from a Brax environment."""
+    """Creates a `gym.Env` or `gym.vector.VectorEnv` from a Brax environment.
+
+    Handle autoreset on the gym end. Gym envs are guaranteed an RNG key, so resets can always be random. Not the case
+    for original
+    """
     kwargs['auto_reset'] = False  # Use gym wrappers for autoreset
     environment = create(env_name=env_name, batch_size=batch_size, **kwargs)
     if batch_size is None:

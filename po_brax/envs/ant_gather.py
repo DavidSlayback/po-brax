@@ -130,9 +130,9 @@ class AntGatherEnv(env.Env):
         # Get observation
         obs = self._get_obs(qp, info, distances)
         # "Death" and associated rewards
-        done = jp.where(qp.pos[self.torso_idx, 2] < 0.2, x=jp.float32(1), y=jp.float32(0))
-        done = jp.where(qp.pos[self.torso_idx, 2] > 1.0, x=jp.float32(1), y=done)
-        reward = jp.where(done > 0, jp.float32(self.dying_cost), jp.float32(0))
+        dead = jp.where(qp.pos[self.torso_idx, 2] < 0.2, x=jp.float32(1), y=jp.float32(0))
+        dead = jp.where(qp.pos[self.torso_idx, 2] > 1.0, x=jp.float32(1), y=dead)
+        reward = jp.where(dead > 0, jp.float32(self.dying_cost), jp.float32(0))
         # Rewards for apples and bombs
         in_range = distances <= self.catch_range
         # Move objects we hit to the waiting area
@@ -140,10 +140,10 @@ class AntGatherEnv(env.Env):
         qp = qp.replace(pos=jp.index_update(qp.pos, self.object_indices, tgt_pos))
 
         in_range_apple, in_range_bomb = in_range[:self.n_apples], in_range[self.n_apples:]
-        reward = jp.where(in_range_apple.any() & (done == 0), jp.float32(1), reward)
-        reward = jp.where(in_range_bomb.any() & (done == 0), jp.float32(-1), reward)
+        reward = jp.where(in_range_apple.any() & (dead == 0), jp.float32(1), reward)
+        reward = jp.where(in_range_bomb.any() & (dead == 0), jp.float32(-1), reward)
         # Done if we hit all objects
-        done = jp.where((qp.pos[self.object_indices] == self.waiting_area).all(), jp.float32(1),done)
+        done = jp.where((qp.pos[self.object_indices] == self.waiting_area).all(), jp.float32(1), dead)
         apples_hit, bombs_hit = in_range_apple.sum(), in_range_bomb.sum()
         state.metrics.update(apples=apples_hit, bombs=bombs_hit)
 
@@ -207,7 +207,7 @@ class AntGatherEnv(env.Env):
         ]
         # flatten bottom dimension
         cfrc = [jp.reshape(x, x.shape[:-2] + (-1,)) for x in cfrc]
-        # Sensor readings
+        # Sensor readings (nbin*2,)
         readings = [self._get_readings(qp, distances)]
 
         return jp.concatenate(qpos + qvel + cfrc + readings)
