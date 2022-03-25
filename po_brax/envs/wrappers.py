@@ -188,9 +188,6 @@ class AutoresetVmapGymWrapper(VmapGymWrapper):
         self._state, obs, reward, done, info = self._step(self._state, action)
         if done.any():
             new_state, new_obs, self._key = self._reset(self._key)  # Get new state (for each environment).
-            # Update state's qp, obs, and info. Leave reward, done, metrics
-            # qp = jp.where(done, new_state.qp, self._state.qp)
-            # obs = jp.where(done, new_obs, obs)
 
             def where_done(x, y):
                 done = self._state.done
@@ -199,5 +196,5 @@ class AutoresetVmapGymWrapper(VmapGymWrapper):
                 return jp.where(done, x, y)
             qp = jp.tree_map(where_done, new_state.qp, self._state.qp)
             obs = where_done(new_obs, obs)
-            self._state = self._state.replace(qp=qp, obs=obs)
+            self._state = self._state.replace(qp=qp, obs=obs, done=jp.zeros_like(done))
         return obs, reward, done, info
