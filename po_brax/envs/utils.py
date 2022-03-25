@@ -57,8 +57,7 @@ def add_capsule_wall_to_body(body: Body, from_xy: jp.ndarray, to_xy: jp.ndarray,
     cap.radius = radius; cap.length = length
 
 
-def draw_arena(cfg: brax.Config, cage_x: float, cage_y: float, capsule_radius_or_box_half_height: float = 0.5,
-               arena_name: str = "Arena", use_boxes: bool = True) -> None:
+def draw_arena(cfg: brax.Config, cage_x: float, cage_y: float, capsule_radius_or_box_half_height: float = 0.5, arena_name: str = "Arena", use_boxes: bool = True) -> None:
     """Add frozen 4-sided arena using capsule walls to enforce bounds of play
 
     Arranged such that cage_x and cage_y are the bounds of the inner area (i.e., at radius edge of capsule facing inward)
@@ -69,7 +68,7 @@ def draw_arena(cfg: brax.Config, cage_x: float, cage_y: float, capsule_radius_or
         cage_y: Max y size
         capsule_radius_or_box_half_height: thickness of wall (capsule) or half height of wall (box, is 2x thickness). >= 0.5 recommended
         arena_name: Name given to arena (used to include collide pairs later)
-        use_boxes: Use box walls instead of capsules
+        use_boxes:
     Returns:
         Nothing, in-place
     """
@@ -84,8 +83,8 @@ def draw_arena(cfg: brax.Config, cage_x: float, cage_y: float, capsule_radius_or
         add_capsule_wall_to_body(arena, xy_positions[i], xy_positions[int((i+1) % 4)], r, True) if not use_boxes else add_box_wall_to_body(arena, xy_positions[i], xy_positions[int((i+1) % 4)], capsule_radius_or_box_half_height, r)
 
 
-def draw_t_maze(cfg: brax.Config, t_x: float, t_y: float, hallway_width: float = 2.,
-                capsule_radius_or_box_half_height: float = 0.5, arena_name: str = "Arena", use_boxes: bool = True) -> None:
+
+def draw_t_maze(cfg: brax.Config, t_x: float, t_y: float, hallway_width: float = 2., capsule_radius_or_box_half_height: float = 0.5, arena_name: str = "Arena", use_boxes: bool = True) -> None:
     """Draw a T (like in TMaze or heaven hell)
 
     Arranged such that cage_x and cage_y are the bounds of the inner area (i.e., at radius edge of capsule facing inward)
@@ -95,9 +94,8 @@ def draw_t_maze(cfg: brax.Config, t_x: float, t_y: float, hallway_width: float =
         t_x: Rightmost x coordinate of top of T
         t_y: Top of T y coordinate
         hallway_width: Uniform width within T
-        capsule_radius_or_box_half_height: thickness of wall (capsule) or half height of wall (box, is 2x thickness). >= 0.5 recommended
-        arena_name: Name given to arena (used to include collide pairs later)
-        use_boxes: Use box walls instead of capsules
+        capsule_radius_or_box_half_height: thickness of wall. >=0.5 recommended
+        arena_name: Name given to arena (used to include collide pairs later
     Returns:
         Nothing, in-place
     """
@@ -107,7 +105,6 @@ def draw_t_maze(cfg: brax.Config, t_x: float, t_y: float, hallway_width: float =
     aqp = cfg.defaults.add().qps.add(name=arena_name)  # Default height such that walls just touch the ground
     aqp.pos.z = capsule_radius_or_box_half_height
     # Top-left point, clockwise around T
-    if use_boxes: r /= 2  # Wall halfsize, expand coordinates so that we *enclose* this space
     xy_positions = jp.array([
         [-t_x - r, t_y + r],
         [t_x + r, t_y + r],
@@ -119,7 +116,4 @@ def draw_t_maze(cfg: brax.Config, t_x: float, t_y: float, hallway_width: float =
         [-t_x - r, t_y - hallway_width - r]
     ])
     for i in range(len(xy_positions)):
-        add_capsule_wall_to_body(arena, xy_positions[i], xy_positions[int((i + 1) % xy_positions.shape[0])], r,
-                                 True) if not use_boxes else add_box_wall_to_body(arena, xy_positions[i],
-                                                                                  xy_positions[int((i + 1) % xy_positions.shape[0])],
-                                                                                  capsule_radius_or_box_half_height, r)
+        add_capsule_wall_to_body(arena, xy_positions[i], xy_positions[int((i+1) % xy_positions.shape[0])], r, True) if not use_boxes else add_box_wall_to_body(arena, xy_positions[i], xy_positions[int((i+1) % xy_positions.shape[0])], capsule_radius_or_box_half_height, r)
