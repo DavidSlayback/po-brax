@@ -196,5 +196,9 @@ class AutoresetVmapGymWrapper(VmapGymWrapper):
                 return jp.where(done, x, y)
             qp = jp.tree_map(where_done, new_state.qp, self._state.qp)
             obs = where_done(new_obs, obs)
-            self._state = self._state.replace(qp=qp, obs=obs, done=jp.zeros_like(done))
+            if 'steps' in self._state.info:
+                steps = self._state.info['steps']
+                steps = jp.where(done, jp.zeros_like(steps), steps)
+                self._state.info.update(steps=steps)
+            self._state = self._state.replace(qp=qp, obs=obs)
         return obs, reward, done, info
