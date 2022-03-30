@@ -1,5 +1,5 @@
 """Trains an ant to go to heaven by following the advice of a priest"""
-from collections import Sequence
+from typing import Sequence
 
 import brax
 import jax
