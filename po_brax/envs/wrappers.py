@@ -222,9 +222,9 @@ class EvalGymWrapper(gym.Wrapper):
     def get_stats(self):
         onp = jp.onp
         return {
-            'r': onp.nanmean(onp.array(self.r_q)),
-            'dr': onp.nanmean(onp.array(self.dr_q)),
-            'l': onp.nanmean(onp.array(self.l_q)),
+            "charts/mean_episodic_return": onp.nanmean(onp.array(self.r_q)),
+            "charts/mean_discounted_episodic_return": onp.nanmean(onp.array(self.dr_q)),
+            "charts/mean_episodic_length": onp.nanmean(onp.array(self.l_q)),
         }
 
 
