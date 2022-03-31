@@ -21,7 +21,7 @@ from brax.envs import wrappers as bwrappers
 from .ant_tag import AntTagEnv
 from .ant_heavenhell import AntHeavenHellEnv
 from .ant_gather import AntGatherEnv
-from .wrappers import VmapGymWrapper, AutoresetVmapGymWrapper, AutoresetGymWrapper
+from .wrappers import VmapGymWrapper, AutoresetVmapGymWrapper, AutoresetGymWrapper, EvalGymWrapper
 from brax.envs.env import Env
 import gym
 
@@ -106,11 +106,16 @@ def create_gym_env(env_name: str,
     for original
     """
     kwargs['auto_reset'] = False  # Use gym wrappers for autoreset
+    eval_metrics = kwargs.pop('eval_metrics', False)  # Use gym wrappers for statistics
+    discount = kwargs.pop('discount', 1.)
     environment = create(env_name=env_name, batch_size=batch_size, **kwargs)
     if batch_size is None:
-        return AutoresetGymWrapper(environment, seed=seed, backend=backend)
-    if batch_size <= 0:
-        raise ValueError(
-            '`batch_size` should either be None or a positive integer.')
-    return AutoresetVmapGymWrapper(environment, batch_size, seed=seed, backend=backend)
-    # return VmapGymWrapper(environment, batch_size, seed=seed, backend=backend)
+        e = AutoresetGymWrapper(environment, seed=seed, backend=backend)
+    else:
+        if batch_size <= 0:
+            raise ValueError(
+                '`batch_size` should either be None or a positive integer.')
+        e = AutoresetVmapGymWrapper(environment, batch_size, seed=seed, backend=backend)
+    if eval_metrics:
+        e = EvalGymWrapper(e, discount=discount)
+    return e

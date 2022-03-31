@@ -10,15 +10,16 @@ from po_brax.envs import AntGatherEnv
 from po_brax.envs import create_gym_env
 import jax
 
-ENV_NAME = 'ant_heavenhell'
+ENV_NAME = 'ant'
 B = 16
 T = 1000
 if __name__ == "__main__":
-    test = create_gym_env(ENV_NAME, None, 0, episode_length=200)
+    test = create_gym_env(ENV_NAME, B, 0, episode_length=20, eval_metrics=True, discount=0.99)
     o = test.reset()
     o2 = test.step(test.action_space.sample())
     for t in range(T):
         o2 = test.step(test.action_space.sample())
+    print(test.get_stats())
     key = jax.random.PRNGKey(0)
     # e = envs.ant_heavenhell.AntHeavenHellEnv()
     # o = e.reset(key)

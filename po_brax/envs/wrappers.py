@@ -8,7 +8,7 @@ from gym import spaces
 from gym.vector import utils
 import jax
 
-from po_brax.more_jp import cond
+from po_brax.more_jp import cond, atleast_1d, atleast_2d
 
 VectorWrapper = brax.envs.wrappers.VmapWrapper  # Need this version to do rng properly
 
@@ -172,7 +172,65 @@ class VmapGymWrapper(brax.envs.wrappers.VectorGymWrapper):
         self._step = jax.jit(step, backend=self.backend)
 
 
+class EvalGymWrapper(gym.Wrapper):
+    """Convenience wrapper that does episode statistics recording
+
+    Operates on some (potentially batched) underlying gym environment
+    Records steps, returns, discounted returns
+    Unlike typical RecordEpisodeStatistics, operates on device, keeps all stats, resets on call
+    """
+    def __init__(self, env: gym.Env, discount: float = 1.):
+        super().__init__(env)
+        self._discount = discount
+        self.num_envs = getattr(self, 'num_envs', 1)
+        self.current_discount: jp.ndarray = jp.ones(self.num_envs)
+        self.episode_returns: jp.ndarray = jp.zeros(self.num_envs)
+        self.discounted_episode_returns: jp.ndarray = jp.zeros(self.num_envs)
+        self.episode_lengths: jp.ndarray = jp.zeros(self.num_envs, dtype=int)
+
+    def reset(self, **kwargs):
+        """Create buffers for running episodes, queues for completed"""
+        o = super().reset(**kwargs)
+        like = atleast_1d(o[..., -1])  # onp array or (gpu/cpu) jnp array
+        self.episode_returns = jp.zeros_like(like)
+        self.discounted_episode_returns = jp.zeros_like(like)
+        self.episode_lengths = jp.zeros_like(like).astype(int)
+        self.current_discount = jp.ones_like(like)
+        self.r_q, self.dr_q, self.l_q = [[] for _ in range(3)]  # Queues for each statistic
+        return o
+
+    def step(self, action):
+        """Step, store stats. Assume autoreset happens underneath"""
+        o, r, d, info = super().step(action)
+        self.episode_returns += r
+        self.episode_lengths += 1
+        self.discounted_episode_returns += r * self.current_discount
+        self.current_discount *= self._discount
+        if d.any():
+            d_idx = d.nonzero()
+            # Add to queue
+            self.r_q.extend(self.episode_returns[d_idx])
+            self.dr_q.extend(self.discounted_episode_returns[d_idx])
+            self.l_q.extend(self.episode_lengths[d_idx])
+            # Reset those indices
+            self.episode_returns = jp.index_update(self.episode_returns, d_idx, 0)
+            self.discounted_episode_returns = jp.index_update(self.discounted_episode_returns, d_idx, 0)
+            self.episode_lengths = jp.index_update(self.episode_lengths, d_idx, 0)
+            self.current_discount = jp.index_update(self.current_discount, d_idx, 1)
+        return o, r, d, info
+
+    def get_stats(self):
+        onp = jp.onp
+        return {
+            'r': onp.nanmean(onp.array(self.r_q)),
+            'dr': onp.nanmean(onp.array(self.dr_q)),
+            'l': onp.nanmean(onp.array(self.l_q)),
+        }
+
+
+
 class AutoresetGymWrapper(brax.envs.wrappers.GymWrapper):
+    """Wrapper that converts unbatched Brax ENv to one that follows Gym Env API"""
     def step(self, action):
         self._state, obs, reward, done, info = self._step(self._state, action)
         if done: self._state, obs, self._key = self._reset(self._key)
