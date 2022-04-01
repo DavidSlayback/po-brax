@@ -196,7 +196,7 @@ class EvalGymWrapper(gym.Wrapper):
         self.discounted_episode_returns = jp.zeros_like(like)
         self.episode_lengths = jp.zeros_like(like).astype(int)
         self.current_discount = jp.ones_like(like)
-        self.r_q, self.dr_q, self.l_q = [[] for _ in range(3)]  # Queues for each statistic
+        self.r_q, self.dr_q, self.l_q = [[jp.jnp.nan] for _ in range(3)]  # Queues for each statistic
         return o
 
     def step(self, action):
@@ -221,13 +221,12 @@ class EvalGymWrapper(gym.Wrapper):
 
     def get_stats(self):
         onp = jp.onp
-        stats = jax.block_until_ready({
-            "charts/mean_episodic_return": onp.nanmean(onp.array(self.r_q)),
-            "charts/mean_discounted_episodic_return": onp.nanmean(onp.array(self.dr_q)),
-            "charts/mean_episodic_length": onp.nanmean(onp.array(self.l_q)),
+        stats = jax.tree_map(jax.block_until_ready, {
+            "charts/mean_episodic_return": onp.array(jp.jnp.nanmean(jp.stack(self.r_q))),
+            "charts/mean_discounted_episodic_return": jp.jnp.nanmean(jp.stack(self.dr_q)),
+            "charts/mean_episodic_length": onp.array(jp.jnp.nanmean(jp.stack(self.l_q))),
         })
         return stats
-
 
 
 class AutoresetGymWrapper(brax.envs.wrappers.GymWrapper):
